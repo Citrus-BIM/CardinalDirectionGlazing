@@ -9,107 +9,276 @@ namespace CardinalDirectionGlazing
 {
     public partial class CardinalDirectionGlazingWPF : Window
     {
-        public RevitLinkInstance SelectedRevitLinkInstance;
-        public string SpacesForProcessingButtonName;
-        public string SpacesOrRoomsForProcessingButtonName;
+        private const string HintSpaces = "Выберите связанный файл.";
 
-        CardinalDirectionGlazingSettings CardinalDirectionGlazingSettingsItem = null;
+        private const string HintRooms = "Текущий файл или выбранная связь.";
+
+        private readonly List<RevitLinkInstance> _revitLinkInstances;
+        private bool _uiReady;
+
+        public RevitLinkInstance? SelectedRevitLinkInstance;
+        public string SpacesForProcessingButtonName = string.Empty;
+        public string SpacesOrRoomsForProcessingButtonName = string.Empty;
+
+        CardinalDirectionGlazingSettings? CardinalDirectionGlazingSettingsItem = null;
 
         public CardinalDirectionGlazingWPF(List<RevitLinkInstance> revitLinkInstanceList)
         {
+            _revitLinkInstances = revitLinkInstanceList;
             InitializeComponent();
-            CardinalDirectionGlazingSettingsItem = CardinalDirectionGlazingSettings.GetSettings();
 
-            listBox_RevitLinkInstance.ItemsSource = revitLinkInstanceList;
+            CardinalDirectionGlazingSettingsItem = CardinalDirectionGlazingSettings.GetSettings();
+            ApplyLegacyRoomsLinkMigration(CardinalDirectionGlazingSettingsItem);
+
+            listBox_RevitLinkInstance.ItemsSource = _revitLinkInstances;
             listBox_RevitLinkInstance.DisplayMemberPath = "Name";
 
-            // Устанавливаем сохранённые настройки или значения по умолчанию
+            bool hasLinks = _revitLinkInstances.Count > 0;
+
             if (CardinalDirectionGlazingSettingsItem != null)
             {
-                if (revitLinkInstanceList.FirstOrDefault(li => li.Name == CardinalDirectionGlazingSettingsItem.SelectedRevitLinkInstanceName) != null)
-                {
-                    listBox_RevitLinkInstance.SelectedItem = revitLinkInstanceList.FirstOrDefault(li => li.Name == CardinalDirectionGlazingSettingsItem.SelectedRevitLinkInstanceName);
-                }
-                else
-                {
-                    listBox_RevitLinkInstance.SelectedItem = listBox_RevitLinkInstance.Items[0];
-                }
-
                 if (CardinalDirectionGlazingSettingsItem.SpacesForProcessingButtonName == "radioButton_Selected")
-                {
                     radioButton_Selected.IsChecked = true;
-                }
                 else
-                {
                     radioButton_All.IsChecked = true;
-                }
 
                 if (CardinalDirectionGlazingSettingsItem.SpacesOrRoomsForProcessingButtonName == "radioButton_Spaces")
-                {
                     radioButton_Spaces.IsChecked = true;
+                else
+                    radioButton_Rooms.IsChecked = true;
+
+                if (CardinalDirectionGlazingSettingsItem.SpacesOrRoomsForProcessingButtonName == "radioButton_Rooms")
+                {
+                    if (CardinalDirectionGlazingSettingsItem.UseLinkedFileForRooms)
+                    {
+                        radioButton_LinkRoomsUse.IsChecked = true;
+                        if (hasLinks)
+                        {
+                            var match = _revitLinkInstances.FirstOrDefault(li =>
+                                li.Name == CardinalDirectionGlazingSettingsItem.SelectedRevitLinkInstanceName);
+                            listBox_RevitLinkInstance.SelectedItem = match ?? _revitLinkInstances[0];
+                        }
+                    }
+                    else
+                    {
+                        radioButton_LinkRoomsNone.IsChecked = true;
+                        listBox_RevitLinkInstance.SelectedItem = null;
+                    }
                 }
                 else
                 {
-                    radioButton_Rooms.IsChecked = true;
+                    if (hasLinks)
+                    {
+                        var match = _revitLinkInstances.FirstOrDefault(li =>
+                            li.Name == CardinalDirectionGlazingSettingsItem.SelectedRevitLinkInstanceName);
+                        listBox_RevitLinkInstance.SelectedItem = match ?? _revitLinkInstances[0];
+                    }
                 }
             }
             else
             {
-                listBox_RevitLinkInstance.SelectedItem = listBox_RevitLinkInstance.Items[0];
-                radioButton_All.IsChecked = true;
                 radioButton_Spaces.IsChecked = true;
+                radioButton_All.IsChecked = true;
+                radioButton_LinkRoomsNone.IsChecked = true;
+                if (hasLinks)
+                    listBox_RevitLinkInstance.SelectedItem = _revitLinkInstances[0];
             }
+
+            radioButton_Spaces.Checked += ModeRadio_Checked;
+            radioButton_Rooms.Checked += ModeRadio_Checked;
+            radioButton_LinkRoomsNone.Checked += LinkUsageRadio_Checked;
+            radioButton_LinkRoomsUse.Checked += LinkUsageRadio_Checked;
+
+            ApplyModeToUi();
+            _uiReady = true;
+        }
+
+        /// <summary>Старые настройки: помещения + сохранённое имя связи без флага — считаем, что связь использовалась.</summary>
+        private static void ApplyLegacyRoomsLinkMigration(CardinalDirectionGlazingSettings? settings)
+        {
+            if (settings == null)
+                return;
+            if (settings.SpacesOrRoomsForProcessingButtonName != "radioButton_Rooms")
+                return;
+            if (settings.UseLinkedFileForRooms)
+                return;
+            if (!string.IsNullOrWhiteSpace(settings.SelectedRevitLinkInstanceName))
+                settings.UseLinkedFileForRooms = true;
+        }
+
+        private void ModeRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (!_uiReady)
+                return;
+
+            ApplyModeToUi();
+
+            bool spaces = radioButton_Spaces.IsChecked == true;
+            bool hasLinks = _revitLinkInstances.Count > 0;
+            if (spaces && hasLinks && listBox_RevitLinkInstance.SelectedItem == null)
+                listBox_RevitLinkInstance.SelectedItem = _revitLinkInstances[0];
+        }
+
+        private void LinkUsageRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (!_uiReady)
+                return;
+
+            ApplyModeToUi();
+
+            bool useLink = radioButton_LinkRoomsUse.IsChecked == true;
+            bool hasLinks = _revitLinkInstances.Count > 0;
+            if (useLink && hasLinks && listBox_RevitLinkInstance.SelectedItem == null)
+                listBox_RevitLinkInstance.SelectedItem = _revitLinkInstances[0];
+        }
+
+        private void ApplyModeToUi()
+        {
+            bool spaces = radioButton_Spaces.IsChecked == true;
+            bool hasLinks = _revitLinkInstances.Count > 0;
+
+            groupBox_SpacesForProcessing.Header = "Область расчёта";
+            textBlock_ScopeHint.Text = spaces
+                ? "Выбранные или все пространства."
+                : "Выбранные или все помещения.";
+
+            if (spaces)
+            {
+                textBlock_LinkHint.Text = HintSpaces;
+                panel_LinkUsageRooms.Visibility = System.Windows.Visibility.Collapsed;
+                listBox_RevitLinkInstance.IsEnabled = hasLinks;
+            }
+            else
+            {
+                textBlock_LinkHint.Text = HintRooms;
+                panel_LinkUsageRooms.Visibility = System.Windows.Visibility.Visible;
+                bool useLink = radioButton_LinkRoomsUse.IsChecked == true;
+                listBox_RevitLinkInstance.IsEnabled = useLink && hasLinks;
+                if (!useLink)
+                    listBox_RevitLinkInstance.SelectedItem = null;
+            }
+        }
+
+        private bool TryConfirm()
+        {
+            bool spaces = radioButton_Spaces.IsChecked == true;
+            bool hasLinks = _revitLinkInstances.Count > 0;
+
+            if (spaces)
+            {
+                if (!hasLinks)
+                {
+                    MessageBox.Show(
+                        "В проекте нет связанных RVT-файлов. Для расчёта по пространствам связь обязательна.",
+                        "Остекление по сторонам",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return false;
+                }
+
+                if (listBox_RevitLinkInstance.SelectedItem == null)
+                {
+                    MessageBox.Show(
+                        "Выберите связанный файл.",
+                        "Остекление по сторонам",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return false;
+                }
+
+                return true;
+            }
+
+            if (radioButton_LinkRoomsUse.IsChecked == true)
+            {
+                if (!hasLinks)
+                {
+                    MessageBox.Show(
+                        "В проекте нет связанных RVT-файлов.",
+                        "Остекление по сторонам",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return false;
+                }
+
+                if (listBox_RevitLinkInstance.SelectedItem == null)
+                {
+                    MessageBox.Show(
+                        "Выберите связанный файл или включите «Только текущий файл».",
+                        "Остекление по сторонам",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private void btn_Ok_Click(object sender, RoutedEventArgs e)
         {
+            if (!TryConfirm())
+                return;
+
             SaveSettings();
-            this.DialogResult = true;
-            this.Close();
+            DialogResult = true;
+            Close();
         }
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Enter || e.Key == Key.Space)
+            if (e.Key == Key.Escape)
             {
-                SaveSettings();
-                this.DialogResult = true;
-                this.Close();
+                DialogResult = false;
+                Close();
+                e.Handled = true;
+                return;
             }
 
-            else if (e.Key == Key.Escape)
+            if (e.Key == Key.Enter)
             {
-                this.DialogResult = false;
-                this.Close();
+                if (!TryConfirm())
+                {
+                    e.Handled = true;
+                    return;
+                }
+
+                SaveSettings();
+                DialogResult = true;
+                Close();
+                e.Handled = true;
             }
         }
 
         private void btn_Cancel_Click(object sender, RoutedEventArgs e)
         {
-            this.DialogResult = false;
-            this.Close();
+            DialogResult = false;
+            Close();
         }
 
         private void SaveSettings()
         {
-            CardinalDirectionGlazingSettingsItem = new CardinalDirectionGlazingSettings();
+            bool spaces = radioButton_Spaces.IsChecked == true;
+            bool roomsUseLink = !spaces && radioButton_LinkRoomsUse.IsChecked == true;
 
-            SelectedRevitLinkInstance = listBox_RevitLinkInstance.SelectedItem as RevitLinkInstance;
-            if (SelectedRevitLinkInstance != null)
+            SelectedRevitLinkInstance = spaces || roomsUseLink
+                ? listBox_RevitLinkInstance.SelectedItem as RevitLinkInstance
+                : null;
+
+            CardinalDirectionGlazingSettingsItem = new CardinalDirectionGlazingSettings
             {
-                CardinalDirectionGlazingSettingsItem.SelectedRevitLinkInstanceName = SelectedRevitLinkInstance.Name;
-            }
+                SelectedRevitLinkInstanceName = SelectedRevitLinkInstance?.Name ?? string.Empty,
+                UseLinkedFileForRooms = !spaces && roomsUseLink
+            };
 
-            SpacesForProcessingButtonName = (this.groupBox_SpacesForProcessing.Content as System.Windows.Controls.Grid)
-                .Children.OfType<RadioButton>()
-                .FirstOrDefault(rb => rb.IsChecked.Value == true)
-                .Name;
+            SpacesForProcessingButtonName = radioButton_Selected.IsChecked == true
+                ? radioButton_Selected.Name
+                : radioButton_All.Name;
             CardinalDirectionGlazingSettingsItem.SpacesForProcessingButtonName = SpacesForProcessingButtonName;
 
-            SpacesOrRoomsForProcessingButtonName = (this.groupBox_SpacesOrRoomsForProcessing.Content as System.Windows.Controls.Grid)
-                .Children.OfType<RadioButton>()
-                .FirstOrDefault(rb => rb.IsChecked.Value == true)
-                .Name;
+            SpacesOrRoomsForProcessingButtonName = spaces
+                ? radioButton_Spaces.Name
+                : radioButton_Rooms.Name;
             CardinalDirectionGlazingSettingsItem.SpacesOrRoomsForProcessingButtonName = SpacesOrRoomsForProcessingButtonName;
 
             CardinalDirectionGlazingSettingsItem.SaveSettings();

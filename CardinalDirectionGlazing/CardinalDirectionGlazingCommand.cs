@@ -15,6 +15,10 @@ namespace CardinalDirectionGlazing
     [Autodesk.Revit.Attributes.Transaction(Autodesk.Revit.Attributes.TransactionMode.Manual)]
     class CardinalDirectionGlazingCommand : IExternalCommand
     {
+        // Значения-эталоны (можно вынести в настройки, если потребуется)
+        private const string CurtainPanelConstructionTypeGlazing = "Остекление";
+        private const string BasicWallModelGroupGlazing = "Остекления";
+
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
             try
@@ -212,10 +216,12 @@ namespace CardinalDirectionGlazing
             // Инициализируем списки для окон и стен с остеклением
             List<FamilyInstance> windowsList = new List<FamilyInstance>();
             List<Wall> curtainWallsList = new List<Wall>();
+            List<Wall> glazingBasicWallsList = new List<Wall>();
 
             // Инициализируем списки для окон и стен из связанного документа
             List<FamilyInstance> linkedWindowsList = new List<FamilyInstance>();
             List<Wall> linkedCurtainWallsList = new List<Wall>();
+            List<Wall> linkedGlazingBasicWallsList = new List<Wall>();
 
             if (cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Spaces")
             {
@@ -237,6 +243,8 @@ namespace CardinalDirectionGlazing
                         .Cast<Wall>()
                         .Where(w => w.CurtainGrid != null)
                         .ToList();
+
+                    linkedGlazingBasicWallsList = CollectGlazingBasicWalls(linkDoc);
                 }
                 else
                 {
@@ -263,8 +271,10 @@ namespace CardinalDirectionGlazing
                     .WhereElementIsNotElementType()
                     .Cast<Wall>()
                     .Where(w => w.CurtainGrid != null)
-                    .Where(w => w.WallType.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL).AsString() == "Наружный витраж")
+                    .Where(IsOuterCurtainWallByModelGroup)
                     .ToList();
+
+                glazingBasicWallsList = CollectGlazingBasicWalls(doc);
 
                 // Если выбран связанный файл, добавляем окна и стены из связанного файла
                 if (linkDoc != null)
@@ -283,8 +293,10 @@ namespace CardinalDirectionGlazing
                         .WhereElementIsNotElementType()
                         .Cast<Wall>()
                         .Where(w => w.CurtainGrid != null)
-                        .Where(w => w.WallType.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL).AsString() == "Наружный витраж")
+                        .Where(IsOuterCurtainWallByModelGroup)
                         .ToList();
+
+                    linkedGlazingBasicWallsList = CollectGlazingBasicWalls(linkDoc);
                 }
             }
 
@@ -307,191 +319,105 @@ namespace CardinalDirectionGlazing
                     Solid elementSolid = GetSolidFromElement(element);
                     if (elementSolid == null) continue;
 
-                    // Обработка окон из текущего документа (не используем трансформацию)
-                    foreach (FamilyInstance window in windowsList)
-                    {
-                        double roughHeight = 0;
-                        double roughWidth = 0;
-                        double caseworkHeight = 0;
-                        double caseworkWidth = 0;
-                        double maxHeight = 0;
-                        double maxWidth = 0;
+                    Transform tr = transform ?? Transform.Identity;
 
-                        // Получаем параметры ROUGH HEIGHT и ROUGH WIDTH
-                        if (window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM) != null)
-                        {
-                            roughHeight = window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM).AsDouble();
-                        }
-                        if (window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM) != null)
-                        {
-                            roughWidth = window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble();
-                        }
+                    ProcessWindows(
+                        windowsList,
+                        Transform.Identity,
+                        element,
+                        elementSolid,
+                        doc,
+                        trueNorthBasisX,
+                        trueNorthBasisY,
+                        ref windowsAreaNorth,
+                        ref windowsAreaSouth,
+                        ref windowsAreaWest,
+                        ref windowsAreaEast,
+                        ref windowsAreaNorthwest,
+                        ref windowsAreaNortheast,
+                        ref windowsAreaSouthwest,
+                        ref windowsAreaSoutheast);
 
-                        // Получаем параметры CASEWORK для высоты и ширины
-                        if (window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_HEIGHT) != null)
-                        {
-                            caseworkHeight = window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_HEIGHT).AsDouble();
-                        }
-                        if (window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_WIDTH) != null)
-                        {
-                            caseworkWidth = window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_WIDTH).AsDouble();
-                        }
+                    // Обработка панелей витражей из текущего документа (Transform.Identity)
+                    ProcessCurtainWallFills(
+                        doc,
+                        curtainWallsList,
+                        Transform.Identity,
+                        elementSolid,
+                        trueNorthBasisX,
+                        trueNorthBasisY,
+                        ref windowsAreaNorth,
+                        ref windowsAreaSouth,
+                        ref windowsAreaWest,
+                        ref windowsAreaEast,
+                        ref windowsAreaNorthwest,
+                        ref windowsAreaNortheast,
+                        ref windowsAreaSouthwest,
+                        ref windowsAreaSoutheast);
 
-                        // Выбираем максимальные значения высоты и ширины
-                        maxHeight = Math.Max(roughHeight, caseworkHeight);
-                        maxWidth = Math.Max(roughWidth, caseworkWidth);
+                    ProcessGlazingBasicWalls(
+                        glazingBasicWallsList,
+                        Transform.Identity,
+                        elementSolid,
+                        trueNorthBasisX,
+                        trueNorthBasisY,
+                        ref windowsAreaNorth,
+                        ref windowsAreaSouth,
+                        ref windowsAreaWest,
+                        ref windowsAreaEast,
+                        ref windowsAreaNorthwest,
+                        ref windowsAreaNortheast,
+                        ref windowsAreaSouthwest,
+                        ref windowsAreaSoutheast);
 
-                        double windowArea = maxHeight * maxWidth;
+                    ProcessWindows(
+                        linkedWindowsList,
+                        tr,
+                        element,
+                        elementSolid,
+                        doc,
+                        trueNorthBasisX,
+                        trueNorthBasisY,
+                        ref windowsAreaNorth,
+                        ref windowsAreaSouth,
+                        ref windowsAreaWest,
+                        ref windowsAreaEast,
+                        ref windowsAreaNorthwest,
+                        ref windowsAreaNortheast,
+                        ref windowsAreaSouthwest,
+                        ref windowsAreaSoutheast);
 
-                        BoundingBoxXYZ windowBoundingBox = window.get_BoundingBox(null);
-                        if (windowBoundingBox == null) continue;
+                    // Обработка панелей витражей из связанного документа (используем tr)
+                    ProcessCurtainWallFills(
+                        linkDoc,
+                        linkedCurtainWallsList,
+                        tr,
+                        elementSolid,
+                        trueNorthBasisX,
+                        trueNorthBasisY,
+                        ref windowsAreaNorth,
+                        ref windowsAreaSouth,
+                        ref windowsAreaWest,
+                        ref windowsAreaEast,
+                        ref windowsAreaNorthwest,
+                        ref windowsAreaNortheast,
+                        ref windowsAreaSouthwest,
+                        ref windowsAreaSoutheast);
 
-                        XYZ windowCenter = (windowBoundingBox.Max + windowBoundingBox.Min) / 2;
-                        Curve windowCurve = Line.CreateBound(windowCenter, windowCenter + window.FacingOrientation.Negate() * 700 / 304.8);
-
-                        SolidCurveIntersection intersection = elementSolid.IntersectWithCurve(windowCurve, new SolidCurveIntersectionOptions());
-                        if (intersection.SegmentCount > 0)
-                        {
-                            UpdateWindowAreas(ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast, ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast, windowArea, window.FacingOrientation, trueNorthBasisX, trueNorthBasisY);
-                        }
-                    }
-
-                    // Обработка панелей витражей из текущего документа (не используем трансформацию)
-                    foreach (Wall wall in curtainWallsList)
-                    {
-                        foreach (ElementId panelId in wall.CurtainGrid.GetPanelIds())
-                        {
-                            Panel panel = doc.GetElement(panelId) as Panel;
-                            if (panel == null || !IsPanelGlazing(panel)) continue;
-
-                            BoundingBoxXYZ panelBoundingBox = panel.get_BoundingBox(null);
-                            if (panelBoundingBox == null) continue;
-
-                            XYZ panelCenter = (panelBoundingBox.Max + panelBoundingBox.Min) / 2;
-
-                            // Создаем две линии: одну в направлении FacingOrientation, другую в противоположном направлении
-                            Curve panelCurveForward = Line.CreateBound(panelCenter, panelCenter + panel.FacingOrientation * 700 / 304.8);
-                            Curve panelCurveBackward = Line.CreateBound(panelCenter, panelCenter + panel.FacingOrientation.Negate() * 700 / 304.8);
-
-                            SolidCurveIntersectionOptions intersectionOptions = new SolidCurveIntersectionOptions();
-
-                            // Проверяем пересечение в прямом направлении
-                            SolidCurveIntersection intersectionForward = elementSolid.IntersectWithCurve(panelCurveForward, intersectionOptions);
-                            bool intersected = false;
-
-                            if (intersectionForward.SegmentCount > 0)
-                            {
-                                double panelArea = panel.get_Parameter(BuiltInParameter.HOST_AREA_COMPUTED).AsDouble();
-                                UpdateWindowAreas(ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast, ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast, panelArea, panel.FacingOrientation.Negate(), trueNorthBasisX, trueNorthBasisY);
-                                intersected = true;
-                            }
-
-                            // Проверяем пересечение в противоположном направлении, если не было пересечения в прямом
-                            if (!intersected)
-                            {
-                                SolidCurveIntersection intersectionBackward = elementSolid.IntersectWithCurve(panelCurveBackward, intersectionOptions);
-                                if (intersectionBackward.SegmentCount > 0)
-                                {
-                                    double panelArea = panel.get_Parameter(BuiltInParameter.HOST_AREA_COMPUTED).AsDouble();
-                                    UpdateWindowAreas(ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast, ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast, panelArea, panel.FacingOrientation, trueNorthBasisX, trueNorthBasisY);
-                                }
-                            }
-                        }
-                    }
-
-                    // Обработка окон из связанного документа (используем transform)
-                    foreach (FamilyInstance window in linkedWindowsList)
-                    {
-                        double roughHeight = 0;
-                        double roughWidth = 0;
-                        double caseworkHeight = 0;
-                        double caseworkWidth = 0;
-                        double maxHeight = 0;
-                        double maxWidth = 0;
-
-                        // Получаем параметры ROUGH HEIGHT и ROUGH WIDTH
-                        if (window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM) != null)
-                        {
-                            roughHeight = window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM).AsDouble();
-                        }
-                        if (window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM) != null)
-                        {
-                            roughWidth = window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM).AsDouble();
-                        }
-
-                        // Получаем параметры CASEWORK для высоты и ширины
-                        if (window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_HEIGHT) != null)
-                        {
-                            caseworkHeight = window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_HEIGHT).AsDouble();
-                        }
-                        if (window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_WIDTH) != null)
-                        {
-                            caseworkWidth = window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_WIDTH).AsDouble();
-                        }
-
-                        // Выбираем максимальные значения высоты и ширины
-                        maxHeight = Math.Max(roughHeight, caseworkHeight);
-                        maxWidth = Math.Max(roughWidth, caseworkWidth);
-
-                        double windowArea = maxHeight * maxWidth;
-
-                        BoundingBoxXYZ windowBoundingBox = window.get_BoundingBox(null);
-                        if (windowBoundingBox == null) continue;
-
-                        XYZ windowCenter = (windowBoundingBox.Max + windowBoundingBox.Min) / 2;
-                        windowCenter = transform.OfPoint(windowCenter); // Применяем трансформацию для окна из связанного файла
-                        Curve windowCurve = Line.CreateBound(windowCenter, windowCenter + transform.OfVector(window.FacingOrientation.Negate()) * 700 / 304.8);
-
-                        SolidCurveIntersection intersection = elementSolid.IntersectWithCurve(windowCurve, new SolidCurveIntersectionOptions());
-                        if (intersection.SegmentCount > 0)
-                        {
-                            UpdateWindowAreas(ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast, ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast, windowArea, transform.OfVector(window.FacingOrientation), trueNorthBasisX, trueNorthBasisY);
-                        }
-                    }
-
-                    // Обработка панелей витражей из связанного документа (используем transform)
-                    foreach (Wall wall in linkedCurtainWallsList)
-                    {
-                        foreach (ElementId panelId in wall.CurtainGrid.GetPanelIds())
-                        {
-                            Panel panel = linkDoc.GetElement(panelId) as Panel;
-                            if (panel == null || !IsPanelGlazing(panel)) continue;
-
-                            BoundingBoxXYZ panelBoundingBox = panel.get_BoundingBox(null);
-                            if (panelBoundingBox == null) continue;
-
-                            XYZ panelCenter = (panelBoundingBox.Max + panelBoundingBox.Min) / 2;
-                            panelCenter = transform.OfPoint(panelCenter); // Применяем трансформацию для панели из связанного файла
-
-                            // Создаем две линии: одну в направлении FacingOrientation, другую в противоположном направлении
-                            Curve panelCurveForward = Line.CreateBound(panelCenter, panelCenter + transform.OfVector(panel.FacingOrientation) * 700 / 304.8);
-                            Curve panelCurveBackward = Line.CreateBound(panelCenter, panelCenter + transform.OfVector(panel.FacingOrientation.Negate()) * 700 / 304.8);
-
-                            SolidCurveIntersectionOptions intersectionOptions = new SolidCurveIntersectionOptions();
-
-                            // Проверяем пересечение в прямом направлении
-                            SolidCurveIntersection intersectionForward = elementSolid.IntersectWithCurve(panelCurveForward, intersectionOptions);
-                            bool intersected = false;
-
-                            if (intersectionForward.SegmentCount > 0)
-                            {
-                                double panelArea = panel.get_Parameter(BuiltInParameter.HOST_AREA_COMPUTED).AsDouble();
-                                UpdateWindowAreas(ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast, ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast, panelArea, transform.OfVector(panel.FacingOrientation.Negate()), trueNorthBasisX, trueNorthBasisY);
-                                intersected = true;
-                            }
-
-                            // Проверяем пересечение в противоположном направлении, если не было пересечения в прямом
-                            if (!intersected)
-                            {
-                                SolidCurveIntersection intersectionBackward = elementSolid.IntersectWithCurve(panelCurveBackward, intersectionOptions);
-                                if (intersectionBackward.SegmentCount > 0)
-                                {
-                                    double panelArea = panel.get_Parameter(BuiltInParameter.HOST_AREA_COMPUTED).AsDouble();
-                                    UpdateWindowAreas(ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast, ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast, panelArea, transform.OfVector(panel.FacingOrientation), trueNorthBasisX, trueNorthBasisY);
-                                }
-                            }
-                        }
-                    }
+                    ProcessGlazingBasicWalls(
+                        linkedGlazingBasicWallsList,
+                        tr,
+                        elementSolid,
+                        trueNorthBasisX,
+                        trueNorthBasisY,
+                        ref windowsAreaNorth,
+                        ref windowsAreaSouth,
+                        ref windowsAreaWest,
+                        ref windowsAreaEast,
+                        ref windowsAreaNorthwest,
+                        ref windowsAreaNortheast,
+                        ref windowsAreaSouthwest,
+                        ref windowsAreaSoutheast);
 
                     // Установка значений параметров для каждого элемента
                     element.get_Parameter(windowsAreaNorthGuid)?.Set(windowsAreaNorth);
@@ -513,13 +439,654 @@ namespace CardinalDirectionGlazing
         // Дополнительные методы для получения Solid, вычисления площадей и проверки панели
         private Solid GetSolidFromElement(Element element)
         {
-            GeometryElement geomElement = element.get_Geometry(new Options());
-            foreach (GeometryObject geomObj in geomElement)
+            if (element == null) return null;
+
+            Options opt = new Options();
+            GeometryElement ge = element.get_Geometry(opt);
+            if (ge == null) return null;
+
+            foreach (GeometryObject obj in ge)
             {
-                if (geomObj is Solid solid && solid.Volume > 0)
-                    return solid;
+                if (obj is Solid s && s.Volume > 0)
+                    return s;
+
+                if (obj is GeometryInstance gi)
+                {
+                    GeometryElement instGe = gi.GetInstanceGeometry();
+                    if (instGe == null) continue;
+
+                    foreach (GeometryObject instObj in instGe)
+                    {
+                        if (instObj is Solid si && si.Volume > 0)
+                            return si;
+                    }
+                }
             }
+
             return null;
+        }
+
+        private double GetWindowArea(FamilyInstance window)
+        {
+            if (window?.Symbol == null) return 0.0;
+
+            double roughHeight = window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM)?.AsDouble() ?? 0.0;
+            double roughWidth = window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM)?.AsDouble() ?? 0.0;
+            double caseworkHeight = window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_HEIGHT)?.AsDouble() ?? 0.0;
+            double caseworkWidth = window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_WIDTH)?.AsDouble() ?? 0.0;
+
+            return Math.Max(roughHeight, caseworkHeight) * Math.Max(roughWidth, caseworkWidth);
+        }
+
+        private void ProcessWindows(
+            IEnumerable<FamilyInstance>? windows,
+            Transform sourceToHostTransform,
+            Element targetElement,
+            Solid targetSolid,
+            Document hostDocument,
+            XYZ trueNorthBasisX,
+            XYZ trueNorthBasisY,
+            ref double windowsAreaNorth,
+            ref double windowsAreaSouth,
+            ref double windowsAreaWest,
+            ref double windowsAreaEast,
+            ref double windowsAreaNorthwest,
+            ref double windowsAreaNortheast,
+            ref double windowsAreaSouthwest,
+            ref double windowsAreaSoutheast)
+        {
+            if (windows == null || targetElement == null || targetSolid == null || hostDocument == null)
+                return;
+
+            Transform tr = sourceToHostTransform ?? Transform.Identity;
+
+            foreach (FamilyInstance window in windows)
+            {
+                if (window == null)
+                    continue;
+
+                double windowArea = GetWindowArea(window);
+                if (windowArea <= 0)
+                    continue;
+
+                if (!TryGetWindowExteriorDirection(window, tr, targetElement, targetSolid, hostDocument, out XYZ exteriorDirection))
+                    continue;
+
+                UpdateWindowAreas(
+                    ref windowsAreaNorth,
+                    ref windowsAreaSouth,
+                    ref windowsAreaWest,
+                    ref windowsAreaEast,
+                    ref windowsAreaNorthwest,
+                    ref windowsAreaNortheast,
+                    ref windowsAreaSouthwest,
+                    ref windowsAreaSoutheast,
+                    windowArea,
+                    exteriorDirection,
+                    trueNorthBasisX,
+                    trueNorthBasisY);
+            }
+        }
+
+        private bool TryGetWindowExteriorDirection(
+            FamilyInstance window,
+            Transform sourceToHostTransform,
+            Element targetElement,
+            Solid targetSolid,
+            Document hostDocument,
+            out XYZ exteriorDirection)
+        {
+            exteriorDirection = null;
+
+            if (TryGetWindowExteriorDirectionFromCalculationPoints(
+                window,
+                sourceToHostTransform,
+                targetElement,
+                hostDocument,
+                out exteriorDirection))
+            {
+                return true;
+            }
+
+            return TryGetWindowExteriorDirectionFromFallbackRay(
+                window,
+                sourceToHostTransform,
+                targetSolid,
+                out exteriorDirection);
+        }
+
+        private bool TryGetWindowExteriorDirectionFromCalculationPoints(
+            FamilyInstance window,
+            Transform sourceToHostTransform,
+            Element targetElement,
+            Document hostDocument,
+            out XYZ exteriorDirection)
+        {
+            exteriorDirection = null;
+
+            if (window == null || targetElement == null || hostDocument == null)
+                return false;
+
+            if (!window.HasSpatialElementFromToCalculationPoints)
+                return false;
+
+            IList<XYZ> points;
+            try
+            {
+                points = window.GetSpatialElementFromToCalculationPoints();
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (points == null || points.Count < 2)
+                return false;
+
+            Transform tr = sourceToHostTransform ?? Transform.Identity;
+
+            XYZ pointA = tr.OfPoint(points[0]);
+            XYZ pointB = tr.OfPoint(points[1]);
+
+            bool pointAInside = IsPointInSpatialElement(targetElement, pointA);
+            bool pointBInside = IsPointInSpatialElement(targetElement, pointB);
+
+            if (pointAInside == pointBInside)
+                return false;
+
+            XYZ insidePoint = pointAInside ? pointA : pointB;
+            XYZ outsidePoint = pointAInside ? pointB : pointA;
+
+            if (IsPointInAnotherSpatialElement(hostDocument, targetElement, outsidePoint))
+                return false;
+
+            XYZ direction = outsidePoint - insidePoint;
+            if (direction.GetLength() <= 1e-9)
+                return false;
+
+            exteriorDirection = direction.Normalize();
+            return true;
+        }
+
+        private bool TryGetWindowExteriorDirectionFromFallbackRay(
+            FamilyInstance window,
+            Transform sourceToHostTransform,
+            Solid targetSolid,
+            out XYZ exteriorDirection)
+        {
+            exteriorDirection = null;
+
+            if (window == null || targetSolid == null)
+                return false;
+
+            BoundingBoxXYZ windowBoundingBox = window.get_BoundingBox(null);
+            if (windowBoundingBox == null)
+                return false;
+
+            Transform tr = sourceToHostTransform ?? Transform.Identity;
+            XYZ facing = tr.OfVector(window.FacingOrientation);
+            if (facing.GetLength() <= 1e-9)
+                return false;
+
+            XYZ windowCenter = tr.OfPoint((windowBoundingBox.Max + windowBoundingBox.Min) / 2);
+            Curve windowCurve = Line.CreateBound(windowCenter, windowCenter + facing.Negate() * 700 / 304.8);
+
+            SolidCurveIntersection intersection = targetSolid.IntersectWithCurve(windowCurve, new SolidCurveIntersectionOptions());
+            if (intersection.SegmentCount == 0)
+                return false;
+
+            exteriorDirection = facing;
+            return true;
+        }
+
+        private static bool IsPointInSpatialElement(Element targetElement, XYZ point)
+        {
+            return targetElement switch
+            {
+                Room room => room.IsPointInRoom(point),
+                Space space => space.IsPointInSpace(point),
+                _ => false
+            };
+        }
+
+        private static bool IsPointInAnotherSpatialElement(Document hostDocument, Element targetElement, XYZ point)
+        {
+            Phase? phase = GetElementPhase(hostDocument, targetElement);
+
+            if (targetElement is Room)
+            {
+                Room containingRoom = phase != null
+                    ? hostDocument.GetRoomAtPoint(point, phase)
+                    : hostDocument.GetRoomAtPoint(point);
+
+                return containingRoom != null && containingRoom.Id != targetElement.Id;
+            }
+
+            if (targetElement is Space)
+            {
+                Space containingSpace = phase != null
+                    ? hostDocument.GetSpaceAtPoint(point, phase)
+                    : hostDocument.GetSpaceAtPoint(point);
+
+                return containingSpace != null && containingSpace.Id != targetElement.Id;
+            }
+
+            return false;
+        }
+
+        private static Phase? GetElementPhase(Document hostDocument, Element element)
+        {
+            if (hostDocument == null || element == null)
+                return null;
+
+            ElementId phaseId = element.CreatedPhaseId;
+            if (phaseId == ElementId.InvalidElementId)
+                return null;
+
+            return hostDocument.GetElement(phaseId) as Phase;
+        }
+
+        /// <summary>
+        /// Универсальная проверка: является ли заполнитель витражной ячейки остеклением.
+        /// Поддерживает стандартные Curtain Panels и случай, когда панель заменена на базовую стену.
+        /// </summary>
+        private bool IsCurtainGridFillGlazing(Element fill)
+        {
+            if (fill == null) return false;
+
+            // В CurtainGrid почти всегда приходит Panel, даже если "подставили стену"
+            if (fill is Panel panel)
+            {
+                // 1) Классика: тип конструкции на типе панели
+                string constructionType = panel.Symbol?
+                    .get_Parameter(BuiltInParameter.CURTAIN_WALL_PANELS_CONSTRUCTION_TYPE)?
+                    .AsString();
+
+                if (IsGlazingMarker(constructionType))
+                    return true;
+
+                // 2) Доп.критерий: "Группа модели" на типе панели (если кто-то так настроил)
+                string panelTypeModelGroup = panel.Symbol?
+                    .get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?
+                    .AsString();
+
+                if (IsGlazingMarker(panelTypeModelGroup))
+                    return true;
+
+                // 3) Главное для вашего случая: хост-элемент (стена), вставленный в ячейку
+                Element host = null;
+                try
+                {
+                    ElementId hostId = panel.FindHostPanel();
+                    if (hostId != null && hostId != ElementId.InvalidElementId)
+                        host = panel.Document.GetElement(hostId);
+                }
+                catch
+                {
+                    // на всякий случай: FindHostPanel может бросить исключение в редких случаях
+                }
+
+                if (host != null && host.Id != panel.Id)
+                {
+                    string hostTypeModelGroup = GetTypeModelGroup(host);
+                    if (IsGlazingMarker(hostTypeModelGroup))
+                        return true;
+                }
+
+                return false;
+            }
+
+            // Фолбэк: если вдруг реально пришла Wall (редко)
+            if (fill is Wall wall)
+            {
+                string modelGroup = wall.WallType?
+                    .get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?
+                    .AsString();
+
+                return IsGlazingMarker(modelGroup);
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Возвращает "Группа модели" (ALL_MODEL_MODEL) с ТИПА элемента.
+        /// </summary>
+        private string GetTypeModelGroup(Element element)
+        {
+            if (element == null) return null;
+
+            Document doc = element.Document;
+            ElementId typeId = element.GetTypeId();
+            if (typeId == ElementId.InvalidElementId) return null;
+
+            ElementType type = doc.GetElement(typeId) as ElementType;
+            return type?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString();
+        }
+
+        /// <summary>
+        /// "Остекление" или "Остекления" (без чувствительности к регистру/пробелам).
+        /// </summary>
+        private static bool IsGlazingMarker(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            string v = value.Trim();
+
+            return string.Equals(v, CurtainPanelConstructionTypeGlazing, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(v, BasicWallModelGroupGlazing, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Витраж с «Группа модели» типа стены = «Наружный витраж» (как в исходной логике для помещений).
+        /// </summary>
+        private static bool IsOuterCurtainWallByModelGroup(Wall wall)
+        {
+            string? mg = wall.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString();
+            return string.Equals(mg, "Наружный витраж", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Базовые стены без сетки витража с маркером остекления в типе (в т.ч. замена панели витража на Wall).
+        /// </summary>
+        private static List<Wall> CollectGlazingBasicWalls(Document? document)
+        {
+            if (document == null) return new List<Wall>();
+
+            return new FilteredElementCollector(document)
+                .OfCategory(BuiltInCategory.OST_Walls)
+                .OfClass(typeof(Wall))
+                .WhereElementIsNotElementType()
+                .Cast<Wall>()
+                .Where(w => w.CurtainGrid == null)
+                .Where(w => IsGlazingMarker(w.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString()))
+                .ToList();
+        }
+
+        /// <summary>
+        /// Получить "ориентацию" заполнителя (нормаль наружу).
+        /// Для Panel — FacingOrientation, для Wall — Orientation.
+        /// </summary>
+        private bool TryGetFillFacingOrientation(Element fill, out XYZ facing)
+        {
+            facing = null;
+
+            if (fill is Panel p)
+            {
+                facing = p.FacingOrientation;
+                return facing != null;
+            }
+
+            if (fill is Wall w)
+            {
+                // Orientation — нормаль к оси стены в плоскости XY
+                facing = w.Orientation;
+                return facing != null;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Площадь заполнителя по HOST_AREA_COMPUTED (как у вас было для Panel).
+        /// </summary>
+        private double GetFillHostArea(Element fill)
+        {
+            if (fill == null) return 0.0;
+
+            Parameter p = fill.get_Parameter(BuiltInParameter.HOST_AREA_COMPUTED);
+            if (p == null || p.StorageType != StorageType.Double) return 0.0;
+
+            return p.AsDouble();
+        }
+
+        /// <summary>
+        /// Площадь базовых стен-остекления (без витражной сетки): та же геометрия луча, что и для заполнений витража.
+        /// </summary>
+        private void ProcessGlazingBasicWalls(
+            IEnumerable<Wall>? walls,
+            Transform sourceToHostTransform,
+            Solid elementSolid,
+            XYZ trueNorthBasisX,
+            XYZ trueNorthBasisY,
+            ref double windowsAreaNorth,
+            ref double windowsAreaSouth,
+            ref double windowsAreaWest,
+            ref double windowsAreaEast,
+            ref double windowsAreaNorthwest,
+            ref double windowsAreaNortheast,
+            ref double windowsAreaSouthwest,
+            ref double windowsAreaSoutheast)
+        {
+            if (walls == null || elementSolid == null) return;
+
+            Transform tr = sourceToHostTransform ?? Transform.Identity;
+
+            foreach (Wall wall in walls)
+            {
+                if (wall == null || wall.CurtainGrid != null) continue;
+
+                if (!TryGetFillFacingOrientation(wall, out XYZ facingLocal)) continue;
+
+                BoundingBoxXYZ bb = wall.get_BoundingBox(null);
+                if (bb == null) continue;
+
+                XYZ centerLocal = (bb.Max + bb.Min) / 2;
+                XYZ center = tr.OfPoint(centerLocal);
+                XYZ facing = tr.OfVector(facingLocal);
+
+                double area = GetFillHostArea(wall);
+                if (area <= 0) continue;
+
+                double rayLen = 700 / 304.8;
+                Curve curveForward = Line.CreateBound(center, center + facing * rayLen);
+                Curve curveBackward = Line.CreateBound(center, center + facing.Negate() * rayLen);
+
+                SolidCurveIntersectionOptions opt = new SolidCurveIntersectionOptions();
+
+                SolidCurveIntersection interForward = elementSolid.IntersectWithCurve(curveForward, opt);
+                bool intersected = false;
+
+                if (interForward.SegmentCount > 0)
+                {
+                    UpdateWindowAreas(
+                        ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
+                        ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
+                        area, facing.Negate(), trueNorthBasisX, trueNorthBasisY);
+                    intersected = true;
+                }
+
+                if (!intersected)
+                {
+                    SolidCurveIntersection interBackward = elementSolid.IntersectWithCurve(curveBackward, opt);
+                    if (interBackward.SegmentCount > 0)
+                    {
+                        UpdateWindowAreas(
+                            ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
+                            ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
+                            area, facing, trueNorthBasisX, trueNorthBasisY);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Общая обработка заполнений витражных стен (в текущем документе или в связи).
+        /// sourceToHostTransform:
+        /// - Transform.Identity для текущего документа
+        /// - RevitLinkInstance.GetTotalTransform() для связи
+        /// </summary>
+        
+        private void ProcessCurtainWallFills(
+            Document sourceDoc,
+            IEnumerable<Wall> curtainWalls,
+            Transform sourceToHostTransform,
+            Solid elementSolid,
+            XYZ trueNorthBasisX,
+            XYZ trueNorthBasisY,
+            ref double windowsAreaNorth,
+            ref double windowsAreaSouth,
+            ref double windowsAreaWest,
+            ref double windowsAreaEast,
+            ref double windowsAreaNorthwest,
+            ref double windowsAreaNortheast,
+            ref double windowsAreaSouthwest,
+            ref double windowsAreaSoutheast)
+        {
+            if (sourceDoc == null) return;
+            if (curtainWalls == null) return;
+            if (elementSolid == null) return;
+
+            Transform tr = sourceToHostTransform ?? Transform.Identity;
+
+            foreach (Wall wall in curtainWalls)
+            {
+                CurtainGrid grid = wall?.CurtainGrid;
+                if (grid == null) continue;
+
+                foreach (ElementId panelId in grid.GetPanelIds())
+                {
+                    Element fill = sourceDoc.GetElement(panelId);
+                    if (fill == null) continue;
+
+                    // Фильтрация остекления (Panel или Wall)
+                    if (!IsCurtainGridFillGlazing(fill)) continue;
+
+                    // Ориентация заполнителя
+                    if (!TryGetFillFacingOrientation(fill, out XYZ facingLocal)) continue;
+
+                    if (!TryGetFillBoundingBox(sourceDoc, fill, out BoundingBoxXYZ bb))
+                        continue;
+
+                    XYZ centerLocal = (bb.Max + bb.Min) / 2;
+
+                    // Приводим геометрию к координатам хоста (для связи) либо оставляем как есть (для текущего дока)
+                    XYZ center = tr.OfPoint(centerLocal);
+                    XYZ facing = tr.OfVector(facingLocal);
+
+                    // Две линии: вперёд по facing и назад (как у вас)
+                    double rayLen = 700 / 304.8;
+                    Curve curveForward = Line.CreateBound(center, center + facing * rayLen);
+                    Curve curveBackward = Line.CreateBound(center, center + facing.Negate() * rayLen);
+
+                    SolidCurveIntersectionOptions opt = new SolidCurveIntersectionOptions();
+
+                    SolidCurveIntersection interForward = elementSolid.IntersectWithCurve(curveForward, opt);
+                    bool intersected = false;
+
+                    double area = GetFillHostArea(fill);
+                    if (area <= 0) continue;
+
+                    if (interForward.SegmentCount > 0)
+                    {
+                        // ВАЖНО: сохраняем вашу логику со сменой знака orientation в forward-ветке
+                        UpdateWindowAreas(
+                            ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
+                            ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
+                            area, facing.Negate(), trueNorthBasisX, trueNorthBasisY);
+
+                        intersected = true;
+                    }
+
+                    if (!intersected)
+                    {
+                        SolidCurveIntersection interBackward = elementSolid.IntersectWithCurve(curveBackward, opt);
+                        if (interBackward.SegmentCount > 0)
+                        {
+                            UpdateWindowAreas(
+                                ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
+                                ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
+                                area, facing, trueNorthBasisX, trueNorthBasisY);
+                        }
+                    }
+                }
+            }
+        }
+
+        private bool TryGetFillBoundingBox(Document sourceDoc, Element fill, out BoundingBoxXYZ bb)
+        {
+            bb = null;
+            if (fill == null) return false;
+
+            // 1) Пробуем BB самого элемента (быстро)
+            bb = fill.get_BoundingBox(null);
+            if (bb != null) return true;
+
+            // 2) Частый кейс: fill = Panel, а реальная "начинка" сидит в host (например, стена)
+            if (fill is Panel panel)
+            {
+                try
+                {
+                    ElementId hostId = panel.FindHostPanel(); // у вас это ElementId
+                    if (hostId != null && hostId != ElementId.InvalidElementId)
+                    {
+                        Element host = sourceDoc.GetElement(hostId);
+                        bb = host?.get_BoundingBox(null);
+                        if (bb != null) return true;
+                    }
+                }
+                catch
+                {
+                    // игнорируем: FindHostPanel может быть недоступен/кинуть исключение в редких случаях
+                }
+            }
+
+            // 3) (Опционально) Фолбэк: пытаемся получить BB через геометрию (медленнее, но иногда спасает)
+            Options opt = new Options
+            {
+                IncludeNonVisibleObjects = true,
+                DetailLevel = ViewDetailLevel.Fine
+            };
+
+            GeometryElement ge = fill.get_Geometry(opt);
+            if (ge == null) return false;
+
+            XYZ min = null, max = null;
+
+            void Expand(BoundingBoxXYZ b)
+            {
+                if (b == null) return;
+
+                if (min == null)
+                {
+                    min = b.Min;
+                    max = b.Max;
+                    return;
+                }
+
+                min = new XYZ(
+                    Math.Min(min.X, b.Min.X),
+                    Math.Min(min.Y, b.Min.Y),
+                    Math.Min(min.Z, b.Min.Z));
+
+                max = new XYZ(
+                    Math.Max(max.X, b.Max.X),
+                    Math.Max(max.Y, b.Max.Y),
+                    Math.Max(max.Z, b.Max.Z));
+            }
+
+            foreach (GeometryObject obj in ge)
+            {
+                if (obj is Solid s && s.Volume > 0)
+                {
+                    Expand(s.GetBoundingBox());
+                }
+                else if (obj is GeometryInstance gi)
+                {
+                    GeometryElement inst = gi.GetInstanceGeometry();
+                    if (inst == null) continue;
+
+                    foreach (GeometryObject io in inst)
+                    {
+                        if (io is Solid si && si.Volume > 0)
+                            Expand(si.GetBoundingBox());
+                    }
+                }
+            }
+
+            if (min == null) return false;
+
+            bb = new BoundingBoxXYZ { Min = min, Max = max };
+            return true;
         }
 
         private void UpdateWindowAreas(
@@ -527,64 +1094,45 @@ namespace CardinalDirectionGlazing
             ref double northwest, ref double northeast, ref double southwest, ref double southeast,
             double area, XYZ orientation, XYZ trueNorthBasisX, XYZ trueNorthBasisY)
         {
-            // Рассчитываем углы до каждой из сторон света
-            double angleToNorth = orientation.AngleTo(trueNorthBasisY);
-            double angleToSouth = orientation.AngleTo(trueNorthBasisY.Negate());
-            double angleToWest = orientation.AngleTo(trueNorthBasisX.Negate());
-            double angleToEast = orientation.AngleTo(trueNorthBasisX);
+            if (!CardinalDirectionClassifier.TryClassify(
+                orientation.X,
+                orientation.Y,
+                trueNorthBasisX.X,
+                trueNorthBasisX.Y,
+                trueNorthBasisY.X,
+                trueNorthBasisY.Y,
+                out CardinalDirectionBucket bucket))
+            {
+                return;
+            }
 
-            // Рассчитываем углы до промежуточных направлений
-            double angleToNorthwest = orientation.AngleTo(trueNorthBasisY + trueNorthBasisX.Negate());
-            double angleToNortheast = orientation.AngleTo(trueNorthBasisY + trueNorthBasisX);
-            double angleToSouthwest = orientation.AngleTo(trueNorthBasisY.Negate() + trueNorthBasisX.Negate());
-            double angleToSoutheast = orientation.AngleTo(trueNorthBasisY.Negate() + trueNorthBasisX);
-
-            // Условие для основного направления Север
-            if (angleToNorth <= Math.PI / 8)
+            switch (bucket)
             {
-                north += area;
+                case CardinalDirectionBucket.North:
+                    north += area;
+                    break;
+                case CardinalDirectionBucket.South:
+                    south += area;
+                    break;
+                case CardinalDirectionBucket.West:
+                    west += area;
+                    break;
+                case CardinalDirectionBucket.East:
+                    east += area;
+                    break;
+                case CardinalDirectionBucket.Northwest:
+                    northwest += area;
+                    break;
+                case CardinalDirectionBucket.Northeast:
+                    northeast += area;
+                    break;
+                case CardinalDirectionBucket.Southwest:
+                    southwest += area;
+                    break;
+                case CardinalDirectionBucket.Southeast:
+                    southeast += area;
+                    break;
             }
-            // Условие для основного направления Юг
-            else if (angleToSouth <= Math.PI / 8)
-            {
-                south += area;
-            }
-            // Условие для основного направления Запад
-            else if (angleToWest <= Math.PI / 8)
-            {
-                west += area;
-            }
-            // Условие для основного направления Восток
-            else if (angleToEast <= Math.PI / 8)
-            {
-                east += area;
-            }
-            // Условие для промежуточного направления Северо-Запад
-            else if (angleToNorthwest <= Math.PI / 8)
-            {
-                northwest += area;
-            }
-            // Условие для промежуточного направления Северо-Восток
-            else if (angleToNortheast <= Math.PI / 8)
-            {
-                northeast += area;
-            }
-            // Условие для промежуточного направления Юго-Запад
-            else if (angleToSouthwest <= Math.PI / 8)
-            {
-                southwest += area;
-            }
-            // Условие для промежуточного направления Юго-Восток
-            else if (angleToSoutheast <= Math.PI / 8)
-            {
-                southeast += area;
-            }
-        }
-
-        private bool IsPanelGlazing(Panel panel)
-        {
-            string constructionType = panel.Symbol.get_Parameter(BuiltInParameter.CURTAIN_WALL_PANELS_CONSTRUCTION_TYPE)?.AsString();
-            return constructionType == "Остекление";
         }
 
         private static List<Space> GetSpacesFromCurrentSelection(Document doc, Selection sel)
@@ -593,11 +1141,9 @@ namespace CardinalDirectionGlazing
             List<Space> tempSpacessList = new List<Space>();
             foreach (ElementId roomId in selectedIds)
             {
-                if (doc.GetElement(roomId) is Space
-                    && null != doc.GetElement(roomId).Category
-                    && doc.GetElement(roomId).Category.Id.IntegerValue.Equals((int)BuiltInCategory.OST_MEPSpaces))
+                if (doc.GetElement(roomId) is Space space)
                 {
-                    tempSpacessList.Add(doc.GetElement(roomId) as Space);
+                    tempSpacessList.Add(space);
                 }
             }
             return tempSpacessList;
@@ -609,11 +1155,9 @@ namespace CardinalDirectionGlazing
             List<Room> tempRoomsList = new List<Room>();
             foreach (ElementId roomId in selectedIds)
             {
-                if (doc.GetElement(roomId) is Room
-                    && null != doc.GetElement(roomId).Category
-                    && doc.GetElement(roomId).Category.Id.IntegerValue.Equals((int)BuiltInCategory.OST_Rooms))
+                if (doc.GetElement(roomId) is Room room)
                 {
-                    tempRoomsList.Add(doc.GetElement(roomId) as Room);
+                    tempRoomsList.Add(room);
                 }
             }
             return tempRoomsList;
