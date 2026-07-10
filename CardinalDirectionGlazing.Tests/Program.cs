@@ -14,10 +14,41 @@ internal static class Program
         AssertBucket("northwest", -1, 1, CardinalDirectionBucket.Northwest);
         AssertBucket("southeast", 1, -1, CardinalDirectionBucket.Southeast);
         AssertBucket("southwest", -1, -1, CardinalDirectionBucket.Southwest);
+        AssertBucket("south-at-21.29-degrees", Math.Sin(DegreesToRadians(21.29)), -Math.Cos(DegreesToRadians(21.29)), CardinalDirectionBucket.South);
+        AssertBucket("west-at-21.36-degrees", -Math.Cos(DegreesToRadians(21.36)), -Math.Sin(DegreesToRadians(21.36)), CardinalDirectionBucket.West);
+        AssertClassified("south-boundary-22.5-degrees", Math.Sin(DegreesToRadians(22.5)), -Math.Cos(DegreesToRadians(22.5)), 1, 0, 0, 1);
+        AssertClassified("west-boundary-22.5-degrees", -Math.Cos(DegreesToRadians(22.5)), -Math.Sin(DegreesToRadians(22.5)), 1, 0, 0, 1);
+        AssertClassified("valid-orientation-with-distorted-bases", 0, 1, 1, 0, 0.98, 0);
 
         if (CardinalDirectionClassifier.TryClassify(0, 0, 1, 0, 0, 1, out _))
         {
             throw new InvalidOperationException("Zero vector must not be classified.");
+        }
+    }
+
+    private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
+
+    private static void AssertClassified(
+        string caseName,
+        double orientationX,
+        double orientationY,
+        double eastX,
+        double eastY,
+        double northX,
+        double northY)
+    {
+        bool ok = CardinalDirectionClassifier.TryClassify(
+            orientationX,
+            orientationY,
+            eastX,
+            eastY,
+            northX,
+            northY,
+            out _);
+
+        if (!ok)
+        {
+            throw new InvalidOperationException($"Case '{caseName}' was not classified.");
         }
     }
 

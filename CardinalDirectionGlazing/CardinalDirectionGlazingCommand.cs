@@ -343,6 +343,7 @@ namespace CardinalDirectionGlazing
                         doc,
                         curtainWallsList,
                         Transform.Identity,
+                        element,
                         elementSolid,
                         trueNorthBasisX,
                         trueNorthBasisY,
@@ -358,6 +359,7 @@ namespace CardinalDirectionGlazing
                     ProcessGlazingBasicWalls(
                         glazingBasicWallsList,
                         Transform.Identity,
+                        element,
                         elementSolid,
                         trueNorthBasisX,
                         trueNorthBasisY,
@@ -392,6 +394,7 @@ namespace CardinalDirectionGlazing
                         linkDoc,
                         linkedCurtainWallsList,
                         tr,
+                        element,
                         elementSolid,
                         trueNorthBasisX,
                         trueNorthBasisY,
@@ -407,6 +410,7 @@ namespace CardinalDirectionGlazing
                     ProcessGlazingBasicWalls(
                         linkedGlazingBasicWallsList,
                         tr,
+                        element,
                         elementSolid,
                         trueNorthBasisX,
                         trueNorthBasisY,
@@ -538,15 +542,42 @@ namespace CardinalDirectionGlazing
         {
             exteriorDirection = null;
 
+            if (window == null || targetElement == null || hostDocument == null)
+                return false;
+
+            Transform tr = sourceToHostTransform ?? Transform.Identity;
+            BoundingBoxXYZ windowBoundingBox = window.get_BoundingBox(null);
+            XYZ facing = tr.OfVector(window.FacingOrientation);
+            bool isInteriorOpening = false;
+
+            if (windowBoundingBox != null
+                && TryGetExteriorDirectionFromSpatialProbes(
+                    tr.OfPoint((windowBoundingBox.Max + windowBoundingBox.Min) / 2),
+                    facing,
+                    targetElement,
+                    hostDocument,
+                    out exteriorDirection,
+                    out isInteriorOpening))
+            {
+                return true;
+            }
+
+            if (isInteriorOpening)
+                return false;
+
             if (TryGetWindowExteriorDirectionFromCalculationPoints(
                 window,
                 sourceToHostTransform,
                 targetElement,
                 hostDocument,
-                out exteriorDirection))
+                out exteriorDirection,
+                out isInteriorOpening))
             {
                 return true;
             }
+
+            if (isInteriorOpening)
+                return false;
 
             return TryGetWindowExteriorDirectionFromFallbackRay(
                 window,
@@ -560,9 +591,11 @@ namespace CardinalDirectionGlazing
             Transform sourceToHostTransform,
             Element targetElement,
             Document hostDocument,
-            out XYZ exteriorDirection)
+            out XYZ exteriorDirection,
+            out bool isInteriorOpening)
         {
             exteriorDirection = null;
+            isInteriorOpening = false;
 
             if (window == null || targetElement == null || hostDocument == null)
                 return false;
@@ -598,7 +631,10 @@ namespace CardinalDirectionGlazing
             XYZ outsidePoint = pointAInside ? pointB : pointA;
 
             if (IsPointInAnotherSpatialElement(hostDocument, targetElement, outsidePoint))
+            {
+                isInteriorOpening = true;
                 return false;
+            }
 
             XYZ direction = outsidePoint - insidePoint;
             if (direction.GetLength() <= 1e-9)
@@ -606,6 +642,50 @@ namespace CardinalDirectionGlazing
 
             exteriorDirection = direction.Normalize();
             return true;
+        }
+
+        private bool TryGetExteriorDirectionFromSpatialProbes(
+            XYZ center,
+            XYZ facing,
+            Element targetElement,
+            Document hostDocument,
+            out XYZ exteriorDirection,
+            out bool isInteriorOpening)
+        {
+            exteriorDirection = null;
+            isInteriorOpening = false;
+
+            if (center == null || facing == null || targetElement == null || hostDocument == null)
+                return false;
+
+            XYZ horizontalFacing = new XYZ(facing.X, facing.Y, 0);
+            if (horizontalFacing.GetLength() <= 1e-9)
+                return false;
+
+            horizontalFacing = horizontalFacing.Normalize();
+
+            foreach (double distance in new[] { 150.0 / 304.8, 300.0 / 304.8, 700.0 / 304.8 })
+            {
+                XYZ front = center + horizontalFacing * distance;
+                XYZ back = center - horizontalFacing * distance;
+                bool frontInside = IsPointInSpatialElement(targetElement, front);
+                bool backInside = IsPointInSpatialElement(targetElement, back);
+
+                if (frontInside == backInside)
+                    continue;
+
+                XYZ outsidePoint = frontInside ? back : front;
+                if (IsPointInAnotherSpatialElement(hostDocument, targetElement, outsidePoint))
+                {
+                    isInteriorOpening = true;
+                    return false;
+                }
+
+                exteriorDirection = frontInside ? horizontalFacing.Negate() : horizontalFacing;
+                return true;
+            }
+
+            return false;
         }
 
         private bool TryGetWindowExteriorDirectionFromFallbackRay(
@@ -845,6 +925,7 @@ namespace CardinalDirectionGlazing
         private void ProcessGlazingBasicWalls(
             IEnumerable<Wall>? walls,
             Transform sourceToHostTransform,
+            Element targetElement,
             Solid elementSolid,
             XYZ trueNorthBasisX,
             XYZ trueNorthBasisY,
@@ -876,6 +957,23 @@ namespace CardinalDirectionGlazing
 
                 double area = GetFillHostArea(wall);
                 if (area <= 0) continue;
+
+                if (TryGetExteriorDirectionFromSpatialProbes(
+                    center,
+                    facing,
+                    targetElement,
+                    targetElement.Document,
+                    out XYZ exteriorDirection,
+                    out bool isInteriorOpening))
+                {
+                    UpdateWindowAreas(
+                        ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
+                        ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
+                        area, exteriorDirection, trueNorthBasisX, trueNorthBasisY);
+                    continue;
+                }
+
+                if (isInteriorOpening) continue;
 
                 double rayLen = 700 / 304.8;
                 Curve curveForward = Line.CreateBound(center, center + facing * rayLen);
@@ -920,6 +1018,7 @@ namespace CardinalDirectionGlazing
             Document sourceDoc,
             IEnumerable<Wall> curtainWalls,
             Transform sourceToHostTransform,
+            Element targetElement,
             Solid elementSolid,
             XYZ trueNorthBasisX,
             XYZ trueNorthBasisY,
@@ -975,6 +1074,23 @@ namespace CardinalDirectionGlazing
 
                     double area = GetFillHostArea(fill);
                     if (area <= 0) continue;
+
+                    if (TryGetExteriorDirectionFromSpatialProbes(
+                        center,
+                        facing,
+                        targetElement,
+                        targetElement.Document,
+                        out XYZ exteriorDirection,
+                        out bool isInteriorOpening))
+                    {
+                        UpdateWindowAreas(
+                            ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
+                            ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
+                            area, exteriorDirection, trueNorthBasisX, trueNorthBasisY);
+                        continue;
+                    }
+
+                    if (isInteriorOpening) continue;
 
                     if (interForward.SegmentCount > 0)
                     {

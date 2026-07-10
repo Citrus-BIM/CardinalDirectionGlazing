@@ -16,8 +16,6 @@ namespace CardinalDirectionGlazing
 
     internal static class CardinalDirectionClassifier
     {
-        private const double MinimumMatchCosine = 0.9238795325112867; // cos(22.5°)
-
         public static bool TryClassify(
             double orientationX,
             double orientationY,
@@ -62,9 +60,6 @@ namespace CardinalDirectionGlazing
                     bestBucket = candidateBucket;
                 }
             }
-
-            if (bestDot < MinimumMatchCosine)
-                return false;
 
             bucket = bestBucket;
             return true;
