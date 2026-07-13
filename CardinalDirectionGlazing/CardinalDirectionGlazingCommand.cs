@@ -1680,6 +1680,13 @@ namespace CardinalDirectionGlazing
                     continue;
                 }
 
+                SourceTrace curtainWallTrace = StartFillTrace(targetTrace, sourcePass, "CurtainWall", wall);
+                TraceStep curtainWallStep = curtainWallTrace?.StartStep("CurtainGrid");
+                AddTraceDetail(curtainWallStep, "hasCurtainGrid", true);
+                AddTraceDetail(curtainWallStep, "modelGroup", wall.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString() ?? "null");
+                curtainWallStep?.Complete("Accepted", "CurtainWallIncluded");
+                curtainWallTrace?.Complete("Accepted", "CurtainWallIncluded");
+
                 foreach (ElementId panelId in grid.GetPanelIds())
                 {
                     Element fill = sourceDoc.GetElement(panelId);
