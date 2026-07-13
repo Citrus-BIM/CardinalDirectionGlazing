@@ -1684,6 +1684,7 @@ namespace CardinalDirectionGlazing
                 TraceStep curtainWallStep = curtainWallTrace?.StartStep("CurtainGrid");
                 AddTraceDetail(curtainWallStep, "hasCurtainGrid", true);
                 AddTraceDetail(curtainWallStep, "modelGroup", wall.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString() ?? "null");
+                AddTraceDetail(curtainWallStep, "isOuterCurtainWall", IsOuterCurtainWallByModelGroup(wall));
                 curtainWallStep?.Complete("Accepted", "CurtainWallIncluded");
                 curtainWallTrace?.Complete("Accepted", "CurtainWallIncluded");
 
