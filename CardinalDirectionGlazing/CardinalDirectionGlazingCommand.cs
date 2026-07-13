@@ -439,6 +439,10 @@ namespace CardinalDirectionGlazing
                         ref windowsAreaSouthwest,
                         ref windowsAreaSoutheast);
 
+                    if (cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Rooms")
+                        TraceExcludedOuterCurtainWalls(doc, targetTrace, "CurrentCurtainWalls");
+
+                    TraceExcludedBasicWallCandidates(doc, targetTrace, "CurrentGlazingWalls");
                     ProcessGlazingBasicWalls(
                         glazingBasicWallsList,
                         Transform.Identity,
@@ -496,6 +500,10 @@ namespace CardinalDirectionGlazing
                         ref windowsAreaSouthwest,
                         ref windowsAreaSoutheast);
 
+                    if (cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Rooms")
+                        TraceExcludedOuterCurtainWalls(linkDoc, targetTrace, "LinkedCurtainWalls");
+
+                    TraceExcludedBasicWallCandidates(linkDoc, targetTrace, "LinkedGlazingWalls");
                     ProcessGlazingBasicWalls(
                         linkedGlazingBasicWallsList,
                         tr,
@@ -1322,8 +1330,7 @@ namespace CardinalDirectionGlazing
         }
 
         /// <summary>
-        /// Все стены-кандидаты для диагностируемого прохода базового остекления. Фильтры применяются
-        /// непосредственно в ProcessGlazingBasicWalls, чтобы в JSON остались причины исключения.
+        /// Базовые стены без сетки витража с маркером остекления в типе (в т.ч. замена панели витража на Wall).
         /// </summary>
         private static List<Wall> CollectGlazingBasicWalls(Document? document)
         {
@@ -1334,6 +1341,8 @@ namespace CardinalDirectionGlazing
                 .OfClass(typeof(Wall))
                 .WhereElementIsNotElementType()
                 .Cast<Wall>()
+                .Where(w => w.CurtainGrid == null)
+                .Where(w => IsGlazingMarker(w.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString()))
                 .ToList();
         }
 
@@ -1383,6 +1392,48 @@ namespace CardinalDirectionGlazing
                 .WhereElementIsNotElementType()
                 .Cast<Wall>()
                 .Count(w => w.CurtainGrid != null && !IsOuterCurtainWallByModelGroup(w));
+        }
+
+        // Только диагностика исключений фильтра «Наружный витраж» для режима помещений.
+        private static void TraceExcludedOuterCurtainWalls(Document document, TargetTrace targetTrace, string sourcePass)
+        {
+            if (document == null || targetTrace == null) return;
+            foreach (Wall wall in new FilteredElementCollector(document)
+                .OfCategory(BuiltInCategory.OST_Walls)
+                .OfClass(typeof(Wall))
+                .WhereElementIsNotElementType()
+                .Cast<Wall>()
+                .Where(w => w.CurtainGrid != null && !IsOuterCurtainWallByModelGroup(w)))
+            {
+                SourceTrace trace = StartFillTrace(targetTrace, sourcePass, "CurtainWallCandidate", wall);
+                TraceStep step = trace?.StartStep("OuterCurtainWallFilter");
+                AddTraceDetail(step, "hasCurtainGrid", true);
+                AddTraceDetail(step, "modelGroup", wall.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString() ?? "null");
+                trace?.Complete("Skipped", "NotOuterCurtainWall");
+            }
+        }
+
+        // Только диагностика: список, используемый расчётом, не изменяется.
+        private static void TraceExcludedBasicWallCandidates(Document document, TargetTrace targetTrace, string sourcePass)
+        {
+            if (document == null || targetTrace == null) return;
+
+            foreach (Wall wall in new FilteredElementCollector(document)
+                .OfCategory(BuiltInCategory.OST_Walls)
+                .OfClass(typeof(Wall))
+                .WhereElementIsNotElementType()
+                .Cast<Wall>())
+            {
+                bool hasCurtainGrid = wall.CurtainGrid != null;
+                string modelGroup = wall.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString();
+                if (!hasCurtainGrid && IsGlazingMarker(modelGroup)) continue;
+
+                SourceTrace trace = StartFillTrace(targetTrace, sourcePass, "GlazingWallCandidate", wall);
+                TraceStep step = trace?.StartStep("Candidate");
+                AddTraceDetail(step, "hasCurtainGrid", hasCurtainGrid);
+                AddTraceDetail(step, "modelGroup", modelGroup ?? "null");
+                trace?.Complete("Skipped", hasCurtainGrid ? "CurtainGridWall" : "NotGlazingMarker");
+            }
         }
 
         private static SourceTrace StartFillTrace(TargetTrace targetTrace, string sourcePass, string sourceType, Element element)
@@ -1441,6 +1492,7 @@ namespace CardinalDirectionGlazing
                 {
                     exteriorDirection = facing.Negate();
                     step?.Points.Add(CreateTracePoint("selectedExteriorDirection", exteriorDirection));
+                    AddTraceDetail(step, "backwardRay", "NotEvaluatedForwardAccepted");
                     step?.Complete("Accepted", "ForwardSolidRay");
                     return true;
                 }
@@ -1515,7 +1567,17 @@ namespace CardinalDirectionGlazing
                     continue;
                 }
 
-                BoundingBoxXYZ bb = wall.get_BoundingBox(null);
+                BoundingBoxXYZ bb;
+                try
+                {
+                    bb = wall.get_BoundingBox(null);
+                }
+                catch (Exception ex)
+                {
+                    AddTraceDetail(candidateStep, "elementBoundingBoxError", ex.ToString());
+                    sourceTrace?.Complete("Skipped", "ApiException");
+                    throw;
+                }
                 AddTraceDetail(candidateStep, "boundingBoxRoute", "ElementBoundingBox");
                 TraceFillGeometry(sourceTrace, bb, tr, facingLocal);
                 if (bb == null)
@@ -1721,7 +1783,12 @@ namespace CardinalDirectionGlazing
 
             // 1) Пробуем BB самого элемента (быстро)
             try { bb = fill.get_BoundingBox(null); }
-            catch (Exception ex) { AddTraceDetail(step, "elementBoundingBoxError", ex.ToString()); }
+            catch (Exception ex)
+            {
+                AddTraceDetail(step, "elementBoundingBoxError", ex.ToString());
+                step?.Complete("Skipped", "ApiException");
+                throw;
+            }
             if (bb != null)
             {
                 step?.Complete("Accepted", "ElementBoundingBox");
@@ -1759,7 +1826,17 @@ namespace CardinalDirectionGlazing
                 DetailLevel = ViewDetailLevel.Fine
             };
 
-            GeometryElement ge = fill.get_Geometry(opt);
+            GeometryElement ge;
+            try
+            {
+                ge = fill.get_Geometry(opt);
+            }
+            catch (Exception ex)
+            {
+                AddTraceDetail(step, "geometryBoundingBoxError", ex.ToString());
+                step?.Complete("Skipped", "ApiException");
+                throw;
+            }
             if (ge == null)
             {
                 step?.Complete("Skipped", "NoBoundingBox");
@@ -1790,23 +1867,32 @@ namespace CardinalDirectionGlazing
                     Math.Max(max.Z, b.Max.Z));
             }
 
-            foreach (GeometryObject obj in ge)
+            try
             {
-                if (obj is Solid s && s.Volume > 0)
+                foreach (GeometryObject obj in ge)
                 {
-                    Expand(s.GetBoundingBox());
-                }
-                else if (obj is GeometryInstance gi)
-                {
-                    GeometryElement inst = gi.GetInstanceGeometry();
-                    if (inst == null) continue;
-
-                    foreach (GeometryObject io in inst)
+                    if (obj is Solid s && s.Volume > 0)
                     {
-                        if (io is Solid si && si.Volume > 0)
-                            Expand(si.GetBoundingBox());
+                        Expand(s.GetBoundingBox());
+                    }
+                    else if (obj is GeometryInstance gi)
+                    {
+                        GeometryElement inst = gi.GetInstanceGeometry();
+                        if (inst == null) continue;
+
+                        foreach (GeometryObject io in inst)
+                        {
+                            if (io is Solid si && si.Volume > 0)
+                                Expand(si.GetBoundingBox());
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                AddTraceDetail(step, "geometryBoundingBoxError", ex.ToString());
+                step?.Complete("Skipped", "ApiException");
+                throw;
             }
 
             if (min == null)
