@@ -57,10 +57,13 @@ internal static class Program
         source.SuperComponent = "host-panel-uid";
         TraceStep step = source.StartStep("Area");
         step.Details["roughHeight"] = "1.5";
+        TraceStep fallback = source.StartStep("FallbackSolidRay");
+        fallback.Complete("Skipped", "NoBoundingBox");
+        fallback.Details["frontOtherSpatialElementId"] = "42";
 
         string json = Encoding.UTF8.GetString(CalculationTraceWriter.Serialize(trace));
 
-        if (!json.Contains("LinkedWindows") || !json.Contains("host-panel-uid") || !json.Contains("roughHeight"))
+        if (!json.Contains("LinkedWindows") || !json.Contains("host-panel-uid") || !json.Contains("roughHeight") || !json.Contains("NoBoundingBox") || !json.Contains("frontOtherSpatialElementId"))
         {
             throw new InvalidOperationException("Window trace must serialize its source pass, ownership and diagnostic values.");
         }

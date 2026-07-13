@@ -219,6 +219,12 @@ namespace CardinalDirectionGlazing
 
         [DataMember(Order = 5)]
         public Dictionary<string, string> Details { get; set; }
+
+        public void Complete(string outcome, string reasonCode)
+        {
+            Outcome = outcome;
+            ReasonCode = reasonCode;
+        }
     }
 
     [DataContract]

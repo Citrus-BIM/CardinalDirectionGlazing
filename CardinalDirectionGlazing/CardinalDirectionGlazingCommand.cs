@@ -606,6 +606,20 @@ namespace CardinalDirectionGlazing
             }
         }
 
+        private static void TraceOtherSpatialLookup(TraceStep step, string pointName, Document hostDocument, Element targetElement, XYZ point)
+        {
+            try
+            {
+                bool isAnotherSpatialElement = IsPointInAnotherSpatialElement(hostDocument, targetElement, point, step, pointName);
+                step?.Details.Add(pointName + "IsAnotherSpatialElement", isAnotherSpatialElement.ToString());
+            }
+            catch (Exception ex)
+            {
+                // This lookup is diagnostic-only; a failure must not affect the calculation branch.
+                step?.Details.Add(pointName + "OtherSpatialLookupApiException", ex.ToString());
+            }
+        }
+
         private static string GetSpatialNumber(Element element)
         {
             if (element is Space space) return space.Number;
@@ -905,7 +919,11 @@ namespace CardinalDirectionGlazing
             bool hasCalculationPoints = window.HasSpatialElementFromToCalculationPoints;
             step?.Details.Add("hasSpatialElementFromToCalculationPoints", hasCalculationPoints.ToString());
             if (!hasCalculationPoints)
+            {
+                step?.Details.Add("pointCount", "notRequested");
+                step?.Complete("Skipped", "NoCalculationPoints");
                 return false;
+            }
 
             IList<XYZ> points;
             try
@@ -915,11 +933,16 @@ namespace CardinalDirectionGlazing
             catch (Exception ex)
             {
                 step?.Details.Add("apiException", ex.ToString());
+                step?.Complete("Skipped", "ApiException");
                 return false;
             }
 
+            step?.Details.Add("pointCount", points == null ? "null" : points.Count.ToString());
             if (points == null || points.Count < 2)
+            {
+                step?.Complete("Skipped", points == null ? "NoCalculationPoints" : "InsufficientCalculationPoints");
                 return false;
+            }
 
             Transform tr = sourceToHostTransform ?? Transform.Identity;
 
@@ -934,7 +957,10 @@ namespace CardinalDirectionGlazing
             bool pointBInside = TraceSpatialMembership(step, "pointB", targetElement, hostDocument, pointB);
 
             if (pointAInside == pointBInside)
+            {
+                step?.Complete("Skipped", "EqualCalculationPointMembership");
                 return false;
+            }
 
             XYZ insidePoint = pointAInside ? pointA : pointB;
             XYZ outsidePoint = pointAInside ? pointB : pointA;
@@ -947,10 +973,14 @@ namespace CardinalDirectionGlazing
 
             XYZ direction = outsidePoint - insidePoint;
             if (direction.GetLength() <= 1e-9)
+            {
+                step?.Complete("Skipped", "ZeroCalculationPointDirection");
                 return false;
+            }
 
             exteriorDirection = direction.Normalize();
             sourceTrace.ReasonCode = "CalculationPoints";
+            step?.Complete("Accepted", "CalculationPoints");
             return true;
         }
 
@@ -985,6 +1015,8 @@ namespace CardinalDirectionGlazing
                 step?.Points.Add(CreateTracePoint("back", back));
                 bool frontInside = TraceSpatialMembership(step, "front", targetElement, hostDocument, front);
                 bool backInside = TraceSpatialMembership(step, "back", targetElement, hostDocument, back);
+                TraceOtherSpatialLookup(step, "front", hostDocument, targetElement, front);
+                TraceOtherSpatialLookup(step, "back", hostDocument, targetElement, back);
 
                 if (frontInside == backInside)
                     continue;
@@ -998,6 +1030,7 @@ namespace CardinalDirectionGlazing
 
                 exteriorDirection = frontInside ? horizontalFacing.Negate() : horizontalFacing;
                 if (sourceTrace != null) sourceTrace.ReasonCode = "SpatialProbe";
+                step?.Complete("Accepted", "SpatialProbe");
                 return true;
             }
 
@@ -1013,23 +1046,33 @@ namespace CardinalDirectionGlazing
         {
             exteriorDirection = null;
 
+            TraceStep step = sourceTrace?.StartStep("FallbackSolidRay");
+
             if (window == null || targetSolid == null)
+            {
+                step?.Complete("Skipped", "NoTargetSolid");
                 return false;
+            }
 
             BoundingBoxXYZ windowBoundingBox = window.get_BoundingBox(null);
             if (windowBoundingBox == null)
+            {
+                step?.Complete("Skipped", "NoBoundingBox");
                 return false;
+            }
 
             Transform tr = sourceToHostTransform ?? Transform.Identity;
             XYZ facing = tr.OfVector(window.FacingOrientation);
             if (facing.GetLength() <= 1e-9)
+            {
+                step?.Complete("Skipped", "NoOrientation");
                 return false;
+            }
 
             XYZ windowCenter = tr.OfPoint((windowBoundingBox.Max + windowBoundingBox.Min) / 2);
             Curve windowCurve = Line.CreateBound(windowCenter, windowCenter + facing.Negate() * 700 / 304.8);
 
             SolidCurveIntersection intersection;
-            TraceStep step = sourceTrace?.StartStep("FallbackSolidRay");
             step?.Points.Add(CreateTracePoint("start", windowCenter));
             step?.Points.Add(CreateTracePoint("end", windowCenter + facing.Negate() * 700 / 304.8));
             try
@@ -1043,9 +1086,13 @@ namespace CardinalDirectionGlazing
             }
             AddTraceDetail(step, "segmentCount", intersection.SegmentCount);
             if (intersection.SegmentCount == 0)
+            {
+                step?.Complete("Skipped", "NoSolidRayIntersection");
                 return false;
+            }
 
             exteriorDirection = facing;
+            step?.Complete("Accepted", "SolidRay");
             return true;
         }
 
