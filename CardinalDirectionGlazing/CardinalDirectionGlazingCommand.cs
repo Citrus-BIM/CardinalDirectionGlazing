@@ -1038,6 +1038,7 @@ namespace CardinalDirectionGlazing
                 {
                     MarkOtherSpatialLookupNotEvaluated(step, "front");
                     MarkOtherSpatialLookupNotEvaluated(step, "back");
+                    step?.Complete("Skipped", "EqualSpatialMembership");
                     continue;
                 }
 
@@ -1046,6 +1047,7 @@ namespace CardinalDirectionGlazing
                 if (IsPointInAnotherSpatialElement(hostDocument, targetElement, outsidePoint, step, outsidePointName))
                 {
                     isInteriorOpening = true;
+                    step?.Complete("Skipped", "InteriorOpening");
                     return false;
                 }
 

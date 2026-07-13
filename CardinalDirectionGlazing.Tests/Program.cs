@@ -61,10 +61,12 @@ internal static class Program
         fallback.Complete("Skipped", "NoBoundingBox");
         fallback.Details["frontOtherSpatialLookupOutcome"] = "NotEvaluated";
         fallback.Details["frontOtherSpatialLookupReason"] = "EqualMembershipNoOutsidePoint";
+        TraceStep probe = source.StartStep("SpatialProbe");
+        probe.Complete("Skipped", "EqualSpatialMembership");
 
         string json = Encoding.UTF8.GetString(CalculationTraceWriter.Serialize(trace));
 
-        if (!json.Contains("LinkedWindows") || !json.Contains("host-panel-uid") || !json.Contains("roughHeight") || !json.Contains("NoBoundingBox") || !json.Contains("EqualMembershipNoOutsidePoint"))
+        if (!json.Contains("LinkedWindows") || !json.Contains("host-panel-uid") || !json.Contains("roughHeight") || !json.Contains("NoBoundingBox") || !json.Contains("EqualMembershipNoOutsidePoint") || !json.Contains("EqualSpatialMembership"))
         {
             throw new InvalidOperationException("Window trace must serialize its source pass, ownership and diagnostic values.");
         }
