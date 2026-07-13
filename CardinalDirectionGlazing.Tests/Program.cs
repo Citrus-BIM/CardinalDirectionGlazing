@@ -22,6 +22,7 @@ internal static class Program
         AssertClassified("valid-orientation-with-distorted-bases", 0, 1, 1, 0, 0.98, 0);
         AssertTraceSerializationIncludesSkippedWindow();
         AssertDesktopTracePathUsesStableTimestamp();
+        AssertTraceWriteDoesNotOverwriteExistingFile();
 
         if (CardinalDirectionClassifier.TryClassify(0, 0, 1, 0, 0, 1, out _))
         {
@@ -54,6 +55,38 @@ internal static class Program
         if (!string.Equals(fileName, "CardinalDirectionGlazing_2026-07-13_143050.json", StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Unexpected trace file name: '{fileName}'.");
+        }
+    }
+
+    private static void AssertTraceWriteDoesNotOverwriteExistingFile()
+    {
+        string directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "CardinalDirectionGlazing.Tests", Guid.NewGuid().ToString("N"));
+        string requestedPath = System.IO.Path.Combine(directory, "CardinalDirectionGlazing_2026-07-13_143050.json");
+        var trace = new CalculationTrace("2026.1", "Rooms");
+
+        try
+        {
+            if (!CalculationTraceWriter.TryWrite(trace, requestedPath, out string firstPath, out string firstError))
+            {
+                throw new InvalidOperationException($"First trace write failed: {firstError}");
+            }
+
+            if (!CalculationTraceWriter.TryWrite(trace, requestedPath, out string secondPath, out string secondError))
+            {
+                throw new InvalidOperationException($"Second trace write failed: {secondError}");
+            }
+
+            if (string.Equals(firstPath, secondPath, StringComparison.Ordinal) || !System.IO.File.Exists(firstPath) || !System.IO.File.Exists(secondPath))
+            {
+                throw new InvalidOperationException("Repeated trace writes must create two distinct files.");
+            }
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(directory))
+            {
+                System.IO.Directory.Delete(directory, true);
+            }
         }
     }
 

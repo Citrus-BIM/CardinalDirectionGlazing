@@ -382,14 +382,52 @@ namespace CardinalDirectionGlazing
 
         public static bool TryWrite(CalculationTrace trace, out string path, out string error)
         {
+            return TryWrite(trace, CreateDesktopPath(DateTime.Now), out path, out error);
+        }
+
+        public static bool TryWrite(CalculationTrace trace, string requestedPath, out string path, out string error)
+        {
             path = string.Empty;
             error = string.Empty;
 
             try
             {
-                path = CreateDesktopPath(DateTime.Now);
-                File.WriteAllBytes(path, Serialize(trace));
-                return true;
+                string? directory = Path.GetDirectoryName(requestedPath);
+                if (string.IsNullOrWhiteSpace(directory))
+                {
+                    directory = Environment.CurrentDirectory;
+                }
+
+                Directory.CreateDirectory(directory);
+                string baseName = Path.GetFileNameWithoutExtension(requestedPath);
+                string extension = Path.GetExtension(requestedPath);
+                byte[] bytes = Serialize(trace);
+                IOException? lastCollision = null;
+
+                for (int suffix = 0; suffix < 1000; suffix++)
+                {
+                    string candidate = suffix == 0
+                        ? Path.Combine(directory, baseName + extension)
+                        : Path.Combine(directory, baseName + "_" + suffix + extension);
+
+                    try
+                    {
+                        using (var stream = new FileStream(candidate, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                        {
+                            stream.Write(bytes, 0, bytes.Length);
+                        }
+
+                        path = candidate;
+                        return true;
+                    }
+                    catch (IOException ex)
+                    {
+                        lastCollision = ex;
+                    }
+                }
+
+                error = lastCollision?.Message ?? "Unable to create a unique trace file.";
+                return false;
             }
             catch (Exception ex)
             {
