@@ -340,6 +340,22 @@ namespace CardinalDirectionGlazing
             trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "LinkedDocument.Windows", Count = linkedWindowsList.Count });
             trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "LinkedDocument.CurtainWalls", Count = linkedCurtainWallsList.Count });
             trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "LinkedDocument.GlazingBasicWalls", Count = linkedGlazingBasicWallsList.Count });
+            if (cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Rooms")
+            {
+                trace.SourceCollectionCounts.Add(new SourceCollectionTrace
+                {
+                    Source = "CurrentDocument.CurtainWallsExcludedByOuterModelGroup",
+                    Count = CountCurtainWallsExcludedByOuterModelGroup(doc)
+                });
+                if (linkDoc != null)
+                {
+                    trace.SourceCollectionCounts.Add(new SourceCollectionTrace
+                    {
+                        Source = "LinkedDocument.CurtainWallsExcludedByOuterModelGroup",
+                        Count = CountCurtainWallsExcludedByOuterModelGroup(linkDoc)
+                    });
+                }
+            }
 
             // Начинаем транзакцию для обновления данных в Revit
             using (Transaction t = new Transaction(doc))
@@ -410,6 +426,8 @@ namespace CardinalDirectionGlazing
                         Transform.Identity,
                         element,
                         elementSolid,
+                        targetTrace,
+                        "CurrentCurtainWalls",
                         trueNorthBasisX,
                         trueNorthBasisY,
                         ref windowsAreaNorth,
@@ -426,6 +444,8 @@ namespace CardinalDirectionGlazing
                         Transform.Identity,
                         element,
                         elementSolid,
+                        targetTrace,
+                        "CurrentGlazingWalls",
                         trueNorthBasisX,
                         trueNorthBasisY,
                         ref windowsAreaNorth,
@@ -463,6 +483,8 @@ namespace CardinalDirectionGlazing
                         tr,
                         element,
                         elementSolid,
+                        targetTrace,
+                        "LinkedCurtainWalls",
                         trueNorthBasisX,
                         trueNorthBasisY,
                         ref windowsAreaNorth,
@@ -479,6 +501,8 @@ namespace CardinalDirectionGlazing
                         tr,
                         element,
                         elementSolid,
+                        targetTrace,
+                        "LinkedGlazingWalls",
                         trueNorthBasisX,
                         trueNorthBasisY,
                         ref windowsAreaNorth,
@@ -1171,9 +1195,17 @@ namespace CardinalDirectionGlazing
         /// Универсальная проверка: является ли заполнитель витражной ячейки остеклением.
         /// Поддерживает стандартные Curtain Panels и случай, когда панель заменена на базовую стену.
         /// </summary>
-        private bool IsCurtainGridFillGlazing(Element fill)
+        private bool IsCurtainGridFillGlazing(Element fill, SourceTrace sourceTrace = null)
         {
-            if (fill == null) return false;
+            TraceStep step = sourceTrace?.StartStep("GlazingClassification");
+            if (fill == null)
+            {
+                step?.Complete("Skipped", "NoFill");
+                return false;
+            }
+
+            AddTraceDetail(step, "elementKind", fill.GetType().Name);
+            AddTraceDetail(step, "elementId", fill.Id);
 
             // В CurtainGrid почти всегда приходит Panel, даже если "подставили стену"
             if (fill is Panel panel)
@@ -1182,17 +1214,25 @@ namespace CardinalDirectionGlazing
                 string constructionType = panel.Symbol?
                     .get_Parameter(BuiltInParameter.CURTAIN_WALL_PANELS_CONSTRUCTION_TYPE)?
                     .AsString();
+                AddTraceDetail(step, "constructionType", constructionType ?? "null");
 
                 if (IsGlazingMarker(constructionType))
+                {
+                    step?.Complete("Accepted", "ConstructionTypeGlazingMarker");
                     return true;
+                }
 
                 // 2) Доп.критерий: "Группа модели" на типе панели (если кто-то так настроил)
                 string panelTypeModelGroup = panel.Symbol?
                     .get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?
                     .AsString();
+                AddTraceDetail(step, "panelModelGroup", panelTypeModelGroup ?? "null");
 
                 if (IsGlazingMarker(panelTypeModelGroup))
+                {
+                    step?.Complete("Accepted", "PanelModelGroupGlazingMarker");
                     return true;
+                }
 
                 // 3) Главное для вашего случая: хост-элемент (стена), вставленный в ячейку
                 Element host = null;
@@ -1201,19 +1241,31 @@ namespace CardinalDirectionGlazing
                     ElementId hostId = panel.FindHostPanel();
                     if (hostId != null && hostId != ElementId.InvalidElementId)
                         host = panel.Document.GetElement(hostId);
+                    AddTraceDetail(step, "hostPanelId", hostId);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // на всякий случай: FindHostPanel может бросить исключение в редких случаях
+                    AddTraceDetail(step, "findHostPanelError", ex.ToString());
                 }
 
                 if (host != null && host.Id != panel.Id)
                 {
                     string hostTypeModelGroup = GetTypeModelGroup(host);
-                    if (IsGlazingMarker(hostTypeModelGroup))
+                    AddTraceDetail(step, "hostModelGroup", hostTypeModelGroup ?? "null");
+                    bool hostGlazingMarker = IsGlazingMarker(hostTypeModelGroup);
+                    AddTraceDetail(step, "hostGlazingMarker", hostGlazingMarker);
+                    if (hostGlazingMarker)
+                    {
+                        step?.Complete("Accepted", "HostModelGroupGlazingMarker");
                         return true;
+                    }
+                }
+                else
+                {
+                    AddTraceDetail(step, "hostGlazingMarker", false);
                 }
 
+                step?.Complete("Skipped", "NotGlazingMarker");
                 return false;
             }
 
@@ -1223,10 +1275,13 @@ namespace CardinalDirectionGlazing
                 string modelGroup = wall.WallType?
                     .get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?
                     .AsString();
-
-                return IsGlazingMarker(modelGroup);
+                AddTraceDetail(step, "wallModelGroup", modelGroup ?? "null");
+                bool accepted = IsGlazingMarker(modelGroup);
+                step?.Complete(accepted ? "Accepted" : "Skipped", accepted ? "WallModelGroupGlazingMarker" : "NotGlazingMarker");
+                return accepted;
             }
 
+            step?.Complete("Skipped", "UnsupportedFillType");
             return false;
         }
 
@@ -1267,7 +1322,8 @@ namespace CardinalDirectionGlazing
         }
 
         /// <summary>
-        /// Базовые стены без сетки витража с маркером остекления в типе (в т.ч. замена панели витража на Wall).
+        /// Все стены-кандидаты для диагностируемого прохода базового остекления. Фильтры применяются
+        /// непосредственно в ProcessGlazingBasicWalls, чтобы в JSON остались причины исключения.
         /// </summary>
         private static List<Wall> CollectGlazingBasicWalls(Document? document)
         {
@@ -1278,8 +1334,6 @@ namespace CardinalDirectionGlazing
                 .OfClass(typeof(Wall))
                 .WhereElementIsNotElementType()
                 .Cast<Wall>()
-                .Where(w => w.CurtainGrid == null)
-                .Where(w => IsGlazingMarker(w.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString()))
                 .ToList();
         }
 
@@ -1320,6 +1374,98 @@ namespace CardinalDirectionGlazing
             return p.AsDouble();
         }
 
+        private static int CountCurtainWallsExcludedByOuterModelGroup(Document document)
+        {
+            if (document == null) return 0;
+            return new FilteredElementCollector(document)
+                .OfCategory(BuiltInCategory.OST_Walls)
+                .OfClass(typeof(Wall))
+                .WhereElementIsNotElementType()
+                .Cast<Wall>()
+                .Count(w => w.CurtainGrid != null && !IsOuterCurtainWallByModelGroup(w));
+        }
+
+        private static SourceTrace StartFillTrace(TargetTrace targetTrace, string sourcePass, string sourceType, Element element)
+        {
+            SourceTrace trace = targetTrace?.StartSource(sourceType, element?.UniqueId);
+            if (trace == null) return null;
+
+            trace.SourcePass = sourcePass;
+            trace.ElementId = element?.Id.ToString();
+            trace.Document = element?.Document == null ? null : CreateDocumentTrace(element.Document);
+            return trace;
+        }
+
+        private static void TraceFillGeometry(SourceTrace sourceTrace, BoundingBoxXYZ boundingBox, Transform transform, XYZ facingLocal)
+        {
+            TraceStep step = sourceTrace?.StartStep("Geometry");
+            if (boundingBox == null)
+            {
+                step?.Complete("Skipped", "NoBoundingBox");
+                return;
+            }
+
+            Transform tr = transform ?? Transform.Identity;
+            XYZ center = tr.OfPoint((boundingBox.Min + boundingBox.Max) / 2);
+            step?.Points.Add(CreateTracePoint("boundingBoxMin", tr.OfPoint(boundingBox.Min)));
+            step?.Points.Add(CreateTracePoint("boundingBoxMax", tr.OfPoint(boundingBox.Max)));
+            step?.Points.Add(CreateTracePoint("center", center));
+            step?.Points.Add(CreateTracePoint("facing", tr.OfVector(facingLocal)));
+            step?.Complete("Recorded", "GeometryAvailable");
+        }
+
+        private static bool TryGetExteriorDirectionFromBidirectionalSolidRays(
+            XYZ center, XYZ facing, Solid targetSolid, SourceTrace sourceTrace, out XYZ exteriorDirection)
+        {
+            exteriorDirection = null;
+            TraceStep step = sourceTrace?.StartStep("FallbackSolidRays");
+            if (center == null || facing == null || targetSolid == null || facing.GetLength() <= 1e-9)
+            {
+                step?.Complete("Skipped", targetSolid == null ? "NoTargetSolid" : "NoOrientation");
+                return false;
+            }
+
+            double rayLength = 700.0 / 304.8;
+            XYZ forwardEnd = center + facing * rayLength;
+            XYZ backwardEnd = center - facing * rayLength;
+            step?.Points.Add(CreateTracePoint("forwardStart", center));
+            step?.Points.Add(CreateTracePoint("forwardEnd", forwardEnd));
+            step?.Points.Add(CreateTracePoint("backwardStart", center));
+            step?.Points.Add(CreateTracePoint("backwardEnd", backwardEnd));
+
+            try
+            {
+                SolidCurveIntersection forward = targetSolid.IntersectWithCurve(Line.CreateBound(center, forwardEnd), new SolidCurveIntersectionOptions());
+                AddTraceDetail(step, "forwardSegmentCount", forward.SegmentCount);
+                if (forward.SegmentCount > 0)
+                {
+                    exteriorDirection = facing.Negate();
+                    step?.Points.Add(CreateTracePoint("selectedExteriorDirection", exteriorDirection));
+                    step?.Complete("Accepted", "ForwardSolidRay");
+                    return true;
+                }
+
+                SolidCurveIntersection backward = targetSolid.IntersectWithCurve(Line.CreateBound(center, backwardEnd), new SolidCurveIntersectionOptions());
+                AddTraceDetail(step, "backwardSegmentCount", backward.SegmentCount);
+                if (backward.SegmentCount > 0)
+                {
+                    exteriorDirection = facing;
+                    step?.Points.Add(CreateTracePoint("selectedExteriorDirection", exteriorDirection));
+                    step?.Complete("Accepted", "BackwardSolidRay");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                AddTraceDetail(step, "apiException", ex.ToString());
+                step?.Complete("Skipped", "ApiException");
+                throw;
+            }
+
+            step?.Complete("Skipped", "NoSolidRayIntersection");
+            return false;
+        }
+
         /// <summary>
         /// Площадь базовых стен-остекления (без витражной сетки): та же геометрия луча, что и для заполнений витража.
         /// </summary>
@@ -1328,6 +1474,8 @@ namespace CardinalDirectionGlazing
             Transform sourceToHostTransform,
             Element targetElement,
             Solid elementSolid,
+            TargetTrace targetTrace,
+            string sourcePass,
             XYZ trueNorthBasisX,
             XYZ trueNorthBasisY,
             ref double windowsAreaNorth,
@@ -1345,67 +1493,85 @@ namespace CardinalDirectionGlazing
 
             foreach (Wall wall in walls)
             {
-                if (wall == null || wall.CurtainGrid != null) continue;
+                SourceTrace sourceTrace = StartFillTrace(targetTrace, sourcePass, "GlazingWall", wall);
+                TraceStep candidateStep = sourceTrace?.StartStep("Candidate");
+                AddTraceDetail(candidateStep, "hasCurtainGrid", wall?.CurtainGrid != null);
+                string modelGroup = wall?.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString();
+                AddTraceDetail(candidateStep, "modelGroup", modelGroup ?? "null");
+                if (wall == null || wall.CurtainGrid != null)
+                {
+                    sourceTrace?.Complete("Skipped", "CurtainGridWall");
+                    continue;
+                }
+                if (!IsGlazingMarker(modelGroup))
+                {
+                    sourceTrace?.Complete("Skipped", "NotGlazingMarker");
+                    continue;
+                }
 
-                if (!TryGetFillFacingOrientation(wall, out XYZ facingLocal)) continue;
+                if (!TryGetFillFacingOrientation(wall, out XYZ facingLocal))
+                {
+                    sourceTrace?.Complete("Skipped", "NoOrientation");
+                    continue;
+                }
 
                 BoundingBoxXYZ bb = wall.get_BoundingBox(null);
-                if (bb == null) continue;
+                AddTraceDetail(candidateStep, "boundingBoxRoute", "ElementBoundingBox");
+                TraceFillGeometry(sourceTrace, bb, tr, facingLocal);
+                if (bb == null)
+                {
+                    sourceTrace?.Complete("Skipped", "NoBoundingBox");
+                    continue;
+                }
 
                 XYZ centerLocal = (bb.Max + bb.Min) / 2;
                 XYZ center = tr.OfPoint(centerLocal);
                 XYZ facing = tr.OfVector(facingLocal);
 
                 double area = GetFillHostArea(wall);
-                if (area <= 0) continue;
+                TraceStep areaStep = sourceTrace?.StartStep("Area");
+                AddTraceDetail(areaStep, "hostAreaComputedRaw", area);
+                AddTraceDetail(areaStep, "hostAreaComputedFinal", area);
+                if (area <= 0)
+                {
+                    sourceTrace?.Complete("Skipped", "NoArea");
+                    continue;
+                }
 
                 if (TryGetExteriorDirectionFromSpatialProbes(
                     center,
                     facing,
                     targetElement,
                     targetElement.Document,
-                    null,
+                    sourceTrace,
                     out XYZ exteriorDirection,
                     out bool isInteriorOpening))
                 {
                     UpdateWindowAreas(
                         ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
                         ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
-                        area, exteriorDirection, trueNorthBasisX, trueNorthBasisY);
+                        area, exteriorDirection, trueNorthBasisX, trueNorthBasisY, sourceTrace);
+                    sourceTrace?.Complete(sourceTrace.Direction?.Accepted == true ? "Counted" : "Skipped", sourceTrace.ReasonCode ?? "SpatialProbe");
                     continue;
                 }
 
-                if (isInteriorOpening) continue;
-
-                double rayLen = 700 / 304.8;
-                Curve curveForward = Line.CreateBound(center, center + facing * rayLen);
-                Curve curveBackward = Line.CreateBound(center, center + facing.Negate() * rayLen);
-
-                SolidCurveIntersectionOptions opt = new SolidCurveIntersectionOptions();
-
-                SolidCurveIntersection interForward = elementSolid.IntersectWithCurve(curveForward, opt);
-                bool intersected = false;
-
-                if (interForward.SegmentCount > 0)
+                if (isInteriorOpening)
                 {
-                    UpdateWindowAreas(
-                        ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
+                    sourceTrace?.Complete("Skipped", "InteriorOpening");
+                    continue;
+                }
+
+                if (TryGetExteriorDirectionFromBidirectionalSolidRays(center, facing, elementSolid, sourceTrace, out XYZ exteriorDirectionFromRay))
+                {
+                    sourceTrace.ReasonCode = "SolidRay";
+                    UpdateWindowAreas(ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
                         ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
-                        area, facing.Negate(), trueNorthBasisX, trueNorthBasisY);
-                    intersected = true;
+                        area, exteriorDirectionFromRay, trueNorthBasisX, trueNorthBasisY, sourceTrace);
+                    sourceTrace?.Complete(sourceTrace.Direction?.Accepted == true ? "Counted" : "Skipped", sourceTrace.ReasonCode);
+                    continue;
                 }
 
-                if (!intersected)
-                {
-                    SolidCurveIntersection interBackward = elementSolid.IntersectWithCurve(curveBackward, opt);
-                    if (interBackward.SegmentCount > 0)
-                    {
-                        UpdateWindowAreas(
-                            ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
-                            ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
-                            area, facing, trueNorthBasisX, trueNorthBasisY);
-                    }
-                }
+                sourceTrace?.Complete("Skipped", "NoSpatialAssociation");
             }
         }
 
@@ -1422,6 +1588,8 @@ namespace CardinalDirectionGlazing
             Transform sourceToHostTransform,
             Element targetElement,
             Solid elementSolid,
+            TargetTrace targetTrace,
+            string sourcePass,
             XYZ trueNorthBasisX,
             XYZ trueNorthBasisY,
             ref double windowsAreaNorth,
@@ -1442,21 +1610,50 @@ namespace CardinalDirectionGlazing
             foreach (Wall wall in curtainWalls)
             {
                 CurtainGrid grid = wall?.CurtainGrid;
-                if (grid == null) continue;
+                if (grid == null)
+                {
+                    SourceTrace missingGridTrace = StartFillTrace(targetTrace, sourcePass, "CurtainWall", wall);
+                    missingGridTrace?.StartStep("CurtainGrid")?.Complete("Skipped", "NoCurtainGrid");
+                    missingGridTrace?.Complete("Skipped", "NoCurtainGrid");
+                    continue;
+                }
 
                 foreach (ElementId panelId in grid.GetPanelIds())
                 {
                     Element fill = sourceDoc.GetElement(panelId);
-                    if (fill == null) continue;
+                    SourceTrace sourceTrace = StartFillTrace(targetTrace, sourcePass, "CurtainGridFill", fill);
+                    TraceStep panelStep = sourceTrace?.StartStep("CurtainGridFill");
+                    AddTraceDetail(panelStep, "hostCurtainWallId", wall.Id);
+                    AddTraceDetail(panelStep, "panelId", panelId);
+                    AddTraceDetail(panelStep, "fillFound", fill != null);
+                    AddTraceDetail(panelStep, "fillRuntimeType", fill?.GetType().Name ?? "null");
+                    if (fill == null)
+                    {
+                        sourceTrace?.Complete("Skipped", "NoFill");
+                        continue;
+                    }
 
                     // Фильтрация остекления (Panel или Wall)
-                    if (!IsCurtainGridFillGlazing(fill)) continue;
+                    if (!IsCurtainGridFillGlazing(fill, sourceTrace))
+                    {
+                        sourceTrace?.Complete("Skipped", "NotGlazingMarker");
+                        continue;
+                    }
 
                     // Ориентация заполнителя
-                    if (!TryGetFillFacingOrientation(fill, out XYZ facingLocal)) continue;
-
-                    if (!TryGetFillBoundingBox(sourceDoc, fill, out BoundingBoxXYZ bb))
+                    if (!TryGetFillFacingOrientation(fill, out XYZ facingLocal))
+                    {
+                        sourceTrace?.Complete("Skipped", "NoOrientation");
                         continue;
+                    }
+
+                    if (!TryGetFillBoundingBox(sourceDoc, fill, sourceTrace, out BoundingBoxXYZ bb))
+                    {
+                        sourceTrace?.Complete("Skipped", "NoBoundingBox");
+                        continue;
+                    }
+
+                    TraceFillGeometry(sourceTrace, bb, tr, facingLocal);
 
                     XYZ centerLocal = (bb.Max + bb.Min) / 2;
 
@@ -1464,71 +1661,72 @@ namespace CardinalDirectionGlazing
                     XYZ center = tr.OfPoint(centerLocal);
                     XYZ facing = tr.OfVector(facingLocal);
 
-                    // Две линии: вперёд по facing и назад (как у вас)
-                    double rayLen = 700 / 304.8;
-                    Curve curveForward = Line.CreateBound(center, center + facing * rayLen);
-                    Curve curveBackward = Line.CreateBound(center, center + facing.Negate() * rayLen);
-
-                    SolidCurveIntersectionOptions opt = new SolidCurveIntersectionOptions();
-
-                    SolidCurveIntersection interForward = elementSolid.IntersectWithCurve(curveForward, opt);
-                    bool intersected = false;
-
                     double area = GetFillHostArea(fill);
-                    if (area <= 0) continue;
+                    TraceStep areaStep = sourceTrace?.StartStep("Area");
+                    AddTraceDetail(areaStep, "hostAreaComputedRaw", area);
+                    AddTraceDetail(areaStep, "hostAreaComputedFinal", area);
+                    if (area <= 0)
+                    {
+                        sourceTrace?.Complete("Skipped", "NoArea");
+                        continue;
+                    }
 
                     if (TryGetExteriorDirectionFromSpatialProbes(
                         center,
                         facing,
                     targetElement,
                     targetElement.Document,
-                    null,
+                    sourceTrace,
                     out XYZ exteriorDirection,
                         out bool isInteriorOpening))
                     {
                         UpdateWindowAreas(
                             ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
                             ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
-                            area, exteriorDirection, trueNorthBasisX, trueNorthBasisY);
+                            area, exteriorDirection, trueNorthBasisX, trueNorthBasisY, sourceTrace);
+                        sourceTrace?.Complete(sourceTrace.Direction?.Accepted == true ? "Counted" : "Skipped", sourceTrace.ReasonCode ?? "SpatialProbe");
                         continue;
                     }
 
-                    if (isInteriorOpening) continue;
-
-                    if (interForward.SegmentCount > 0)
+                    if (isInteriorOpening)
                     {
-                        // ВАЖНО: сохраняем вашу логику со сменой знака orientation в forward-ветке
-                        UpdateWindowAreas(
-                            ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
+                        sourceTrace?.Complete("Skipped", "InteriorOpening");
+                        continue;
+                    }
+
+                    if (TryGetExteriorDirectionFromBidirectionalSolidRays(center, facing, elementSolid, sourceTrace, out XYZ exteriorDirectionFromRay))
+                    {
+                        sourceTrace.ReasonCode = "SolidRay";
+                        UpdateWindowAreas(ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
                             ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
-                            area, facing.Negate(), trueNorthBasisX, trueNorthBasisY);
-
-                        intersected = true;
+                            area, exteriorDirectionFromRay, trueNorthBasisX, trueNorthBasisY, sourceTrace);
+                        sourceTrace?.Complete(sourceTrace.Direction?.Accepted == true ? "Counted" : "Skipped", sourceTrace.ReasonCode);
+                        continue;
                     }
 
-                    if (!intersected)
-                    {
-                        SolidCurveIntersection interBackward = elementSolid.IntersectWithCurve(curveBackward, opt);
-                        if (interBackward.SegmentCount > 0)
-                        {
-                            UpdateWindowAreas(
-                                ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
-                                ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
-                                area, facing, trueNorthBasisX, trueNorthBasisY);
-                        }
-                    }
+                    sourceTrace?.Complete("Skipped", "NoSpatialAssociation");
                 }
             }
         }
 
-        private bool TryGetFillBoundingBox(Document sourceDoc, Element fill, out BoundingBoxXYZ bb)
+        private bool TryGetFillBoundingBox(Document sourceDoc, Element fill, SourceTrace sourceTrace, out BoundingBoxXYZ bb)
         {
             bb = null;
-            if (fill == null) return false;
+            TraceStep step = sourceTrace?.StartStep("BoundingBox");
+            if (fill == null)
+            {
+                step?.Complete("Skipped", "NoFill");
+                return false;
+            }
 
             // 1) Пробуем BB самого элемента (быстро)
-            bb = fill.get_BoundingBox(null);
-            if (bb != null) return true;
+            try { bb = fill.get_BoundingBox(null); }
+            catch (Exception ex) { AddTraceDetail(step, "elementBoundingBoxError", ex.ToString()); }
+            if (bb != null)
+            {
+                step?.Complete("Accepted", "ElementBoundingBox");
+                return true;
+            }
 
             // 2) Частый кейс: fill = Panel, а реальная "начинка" сидит в host (например, стена)
             if (fill is Panel panel)
@@ -1536,16 +1734,21 @@ namespace CardinalDirectionGlazing
                 try
                 {
                     ElementId hostId = panel.FindHostPanel(); // у вас это ElementId
+                    AddTraceDetail(step, "hostPanelId", hostId);
                     if (hostId != null && hostId != ElementId.InvalidElementId)
                     {
                         Element host = sourceDoc.GetElement(hostId);
                         bb = host?.get_BoundingBox(null);
-                        if (bb != null) return true;
+                        if (bb != null)
+                        {
+                            step?.Complete("Accepted", "HostBoundingBox");
+                            return true;
+                        }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // игнорируем: FindHostPanel может быть недоступен/кинуть исключение в редких случаях
+                    AddTraceDetail(step, "hostBoundingBoxError", ex.ToString());
                 }
             }
 
@@ -1557,7 +1760,11 @@ namespace CardinalDirectionGlazing
             };
 
             GeometryElement ge = fill.get_Geometry(opt);
-            if (ge == null) return false;
+            if (ge == null)
+            {
+                step?.Complete("Skipped", "NoBoundingBox");
+                return false;
+            }
 
             XYZ min = null, max = null;
 
@@ -1602,9 +1809,14 @@ namespace CardinalDirectionGlazing
                 }
             }
 
-            if (min == null) return false;
+            if (min == null)
+            {
+                step?.Complete("Skipped", "NoBoundingBox");
+                return false;
+            }
 
             bb = new BoundingBoxXYZ { Min = min, Max = max };
+            step?.Complete("Accepted", "GeometryBoundingBox");
             return true;
         }
 
