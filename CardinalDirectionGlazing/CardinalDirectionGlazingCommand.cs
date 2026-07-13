@@ -1455,43 +1455,71 @@ namespace CardinalDirectionGlazing
                 .WhereElementIsNotElementType()
                 .Cast<Wall>())
             {
-                bool hasCurtainGrid = wall.CurtainGrid != null;
-                string modelGroup = wall.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString();
-                string reasonCode = null;
-                string sourcePass = null;
-                string sourceType = null;
+                try
+                {
+                    bool hasCurtainGrid = wall.CurtainGrid != null;
+                    string modelGroup = wall.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString();
+                    string reasonCode = null;
+                    string sourcePass = null;
+                    string sourceType = null;
 
-                if (hasCurtainGrid && includeOuterCurtainFilter && !IsOuterCurtainWallByModelGroup(wall))
-                {
-                    reasonCode = "NotOuterCurtainWall";
-                    sourcePass = sourceDocument + "CurtainWalls";
-                    sourceType = "CurtainWallCandidate";
-                    excludedOuterCurtains++;
-                }
-                else if (!hasCurtainGrid && !IsGlazingMarker(modelGroup))
-                {
-                    reasonCode = "NotGlazingMarker";
-                    sourcePass = sourceDocument + "GlazingWalls";
-                    sourceType = "GlazingWallCandidate";
-                }
-
-                if (reasonCode != null)
-                {
-                    trace.CollectionDiagnostics.Add(new CollectionDiagnosticTrace
+                    if (hasCurtainGrid && includeOuterCurtainFilter && !IsOuterCurtainWallByModelGroup(wall))
                     {
-                        SourcePass = sourcePass,
-                        SourceType = sourceType,
-                        ElementId = wall.Id.ToString(),
-                        UniqueId = wall.UniqueId,
-                        Document = CreateDocumentTrace(wall.Document),
-                        HasCurtainGrid = hasCurtainGrid,
-                        ModelGroup = modelGroup,
-                        ReasonCode = reasonCode
-                    });
+                        reasonCode = "NotOuterCurtainWall";
+                        sourcePass = sourceDocument + "CurtainWalls";
+                        sourceType = "CurtainWallCandidate";
+                        excludedOuterCurtains++;
+                    }
+                    else if (!hasCurtainGrid && !IsGlazingMarker(modelGroup))
+                    {
+                        reasonCode = "NotGlazingMarker";
+                        sourcePass = sourceDocument + "GlazingWalls";
+                        sourceType = "GlazingWallCandidate";
+                    }
+
+                    if (reasonCode != null)
+                    {
+                        trace.CollectionDiagnostics.Add(new CollectionDiagnosticTrace
+                        {
+                            SourcePass = sourcePass,
+                            SourceType = sourceType,
+                            ElementId = wall.Id.ToString(),
+                            UniqueId = wall.UniqueId,
+                            Document = CreateDocumentTrace(wall.Document),
+                            HasCurtainGrid = hasCurtainGrid,
+                            ModelGroup = modelGroup,
+                            ReasonCode = reasonCode
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    trace.CollectionDiagnostics.Add(CreateDiagnosticApiException(sourceDocument, wall, ex));
                 }
             }
 
             return excludedOuterCurtains;
+        }
+
+        private static CollectionDiagnosticTrace CreateDiagnosticApiException(string sourceDocument, Wall wall, Exception exception)
+        {
+            string elementId = null;
+            string uniqueId = null;
+            DocumentTrace document = null;
+            try { elementId = wall?.Id.ToString(); } catch { }
+            try { uniqueId = wall?.UniqueId; } catch { }
+            try { document = wall?.Document == null ? null : CreateDocumentTrace(wall.Document); } catch { }
+
+            return new CollectionDiagnosticTrace
+            {
+                SourcePass = sourceDocument + "WallDiagnostics",
+                SourceType = "WallCandidate",
+                ElementId = elementId,
+                UniqueId = uniqueId,
+                Document = document,
+                ReasonCode = "ApiException",
+                Error = exception.ToString()
+            };
         }
 
         private static SourceTrace StartFillTrace(TargetTrace targetTrace, string sourcePass, string sourceType, Element element)
