@@ -97,6 +97,18 @@ namespace CardinalDirectionGlazing
 
         [DataMember(Order = 8)]
         public string? ReasonCode { get; set; }
+
+        [DataMember(Order = 9)]
+        public string? Outcome { get; set; }
+
+        [DataMember(Order = 10)]
+        public string? SuperComponentElementId { get; set; }
+
+        [DataMember(Order = 11)]
+        public string? SuperComponentUniqueId { get; set; }
+
+        [DataMember(Order = 12)]
+        public string? Error { get; set; }
     }
 
     [DataContract]

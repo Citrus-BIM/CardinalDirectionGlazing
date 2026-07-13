@@ -64,10 +64,19 @@ internal static class Program
         fallback.Details["frontOtherSpatialLookupReason"] = "EqualMembershipNoOutsidePoint";
         TraceStep probe = source.StartStep("SpatialProbe");
         probe.Complete("Skipped", "EqualSpatialMembership");
+        trace.CollectionDiagnostics.Add(new CollectionDiagnosticTrace
+        {
+            SourcePass = "CurrentWindows",
+            SourceType = "Window",
+            Outcome = "Skipped",
+            ReasonCode = "HasSuperComponent",
+            SuperComponentElementId = "100",
+            SuperComponentUniqueId = "host-window-uid"
+        });
 
         string json = Encoding.UTF8.GetString(CalculationTraceWriter.Serialize(trace));
 
-        if (!json.Contains("LinkedWindows") || !json.Contains("host-panel-uid") || !json.Contains("roughHeight") || !json.Contains("NoBoundingBox") || !json.Contains("EqualMembershipNoOutsidePoint") || !json.Contains("EqualSpatialMembership"))
+        if (!json.Contains("LinkedWindows") || !json.Contains("host-panel-uid") || !json.Contains("roughHeight") || !json.Contains("NoBoundingBox") || !json.Contains("EqualMembershipNoOutsidePoint") || !json.Contains("EqualSpatialMembership") || !json.Contains("HasSuperComponent") || !json.Contains("host-window-uid"))
         {
             throw new InvalidOperationException("Window trace must serialize its source pass, ownership and diagnostic values.");
         }

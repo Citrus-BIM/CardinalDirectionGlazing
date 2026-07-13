@@ -343,6 +343,21 @@ namespace CardinalDirectionGlazing
             bool roomsMode = cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Rooms";
             int currentExcludedOuterCurtains = CollectExcludedWallDiagnostics(doc, trace, "Current", roomsMode);
             int linkedExcludedOuterCurtains = linkDoc == null ? 0 : CollectExcludedWallDiagnostics(linkDoc, trace, "Linked", roomsMode);
+            int currentExcludedWindows = CollectExcludedWindowDiagnostics(doc, trace, "CurrentWindows");
+            int linkedExcludedWindows = linkDoc == null ? 0 : CollectExcludedWindowDiagnostics(linkDoc, trace, "LinkedWindows");
+            trace.SourceCollectionCounts.Add(new SourceCollectionTrace
+            {
+                Source = "CurrentDocument.WindowsExcludedBySuperComponent",
+                Count = currentExcludedWindows
+            });
+            if (linkDoc != null)
+            {
+                trace.SourceCollectionCounts.Add(new SourceCollectionTrace
+                {
+                    Source = "LinkedDocument.WindowsExcludedBySuperComponent",
+                    Count = linkedExcludedWindows
+                });
+            }
             if (cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Rooms")
             {
                 trace.SourceCollectionCounts.Add(new SourceCollectionTrace
@@ -1378,6 +1393,54 @@ namespace CardinalDirectionGlazing
             if (p == null || p.StorageType != StorageType.Double) return 0.0;
 
             return p.AsDouble();
+        }
+
+        // Diagnostic-only pass. It intentionally does not feed the calculation window lists.
+        private static int CollectExcludedWindowDiagnostics(Document document, CalculationTrace trace, string sourcePass)
+        {
+            if (document == null || trace == null) return 0;
+            int excludedCount = 0;
+
+            foreach (FamilyInstance window in new FilteredElementCollector(document)
+                .OfCategory(BuiltInCategory.OST_Windows)
+                .OfClass(typeof(FamilyInstance))
+                .WhereElementIsNotElementType()
+                .Cast<FamilyInstance>())
+            {
+                var diagnostic = new CollectionDiagnosticTrace
+                {
+                    SourcePass = sourcePass,
+                    SourceType = "Window",
+                    Outcome = "Skipped"
+                };
+
+                try
+                {
+                    diagnostic.ElementId = window.Id.ToString();
+                    diagnostic.UniqueId = window.UniqueId;
+                    diagnostic.Document = CreateDocumentTrace(window.Document);
+
+                    Element superComponent = window.SuperComponent;
+                    if (superComponent == null)
+                    {
+                        continue;
+                    }
+
+                    diagnostic.SuperComponentElementId = superComponent.Id.ToString();
+                    diagnostic.SuperComponentUniqueId = superComponent.UniqueId;
+                    diagnostic.ReasonCode = "HasSuperComponent";
+                    trace.CollectionDiagnostics.Add(diagnostic);
+                    excludedCount++;
+                }
+                catch (Exception ex)
+                {
+                    diagnostic.ReasonCode = "ApiException";
+                    diagnostic.Error = ex.ToString();
+                    trace.CollectionDiagnostics.Add(diagnostic);
+                }
+            }
+
+            return excludedCount;
         }
 
         // Диагностика собирается один раз на документ и не влияет на расчётные коллекции.
