@@ -340,19 +340,22 @@ namespace CardinalDirectionGlazing
             trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "LinkedDocument.Windows", Count = linkedWindowsList.Count });
             trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "LinkedDocument.CurtainWalls", Count = linkedCurtainWallsList.Count });
             trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "LinkedDocument.GlazingBasicWalls", Count = linkedGlazingBasicWallsList.Count });
+            bool roomsMode = cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Rooms";
+            int currentExcludedOuterCurtains = CollectExcludedWallDiagnostics(doc, trace, "Current", roomsMode);
+            int linkedExcludedOuterCurtains = linkDoc == null ? 0 : CollectExcludedWallDiagnostics(linkDoc, trace, "Linked", roomsMode);
             if (cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Rooms")
             {
                 trace.SourceCollectionCounts.Add(new SourceCollectionTrace
                 {
                     Source = "CurrentDocument.CurtainWallsExcludedByOuterModelGroup",
-                    Count = CountCurtainWallsExcludedByOuterModelGroup(doc)
+                    Count = currentExcludedOuterCurtains
                 });
                 if (linkDoc != null)
                 {
                     trace.SourceCollectionCounts.Add(new SourceCollectionTrace
                     {
                         Source = "LinkedDocument.CurtainWallsExcludedByOuterModelGroup",
-                        Count = CountCurtainWallsExcludedByOuterModelGroup(linkDoc)
+                        Count = linkedExcludedOuterCurtains
                     });
                 }
             }
@@ -439,10 +442,6 @@ namespace CardinalDirectionGlazing
                         ref windowsAreaSouthwest,
                         ref windowsAreaSoutheast);
 
-                    if (cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Rooms")
-                        TraceExcludedOuterCurtainWalls(doc, targetTrace, "CurrentCurtainWalls");
-
-                    TraceExcludedBasicWallCandidates(doc, targetTrace, "CurrentGlazingWalls");
                     ProcessGlazingBasicWalls(
                         glazingBasicWallsList,
                         Transform.Identity,
@@ -500,10 +499,6 @@ namespace CardinalDirectionGlazing
                         ref windowsAreaSouthwest,
                         ref windowsAreaSoutheast);
 
-                    if (cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Rooms")
-                        TraceExcludedOuterCurtainWalls(linkDoc, targetTrace, "LinkedCurtainWalls");
-
-                    TraceExcludedBasicWallCandidates(linkDoc, targetTrace, "LinkedGlazingWalls");
                     ProcessGlazingBasicWalls(
                         linkedGlazingBasicWallsList,
                         tr,
@@ -1385,40 +1380,11 @@ namespace CardinalDirectionGlazing
             return p.AsDouble();
         }
 
-        private static int CountCurtainWallsExcludedByOuterModelGroup(Document document)
+        // Диагностика собирается один раз на документ и не влияет на расчётные коллекции.
+        private static int CollectExcludedWallDiagnostics(Document document, CalculationTrace trace, string sourceDocument, bool includeOuterCurtainFilter)
         {
-            if (document == null) return 0;
-            return new FilteredElementCollector(document)
-                .OfCategory(BuiltInCategory.OST_Walls)
-                .OfClass(typeof(Wall))
-                .WhereElementIsNotElementType()
-                .Cast<Wall>()
-                .Count(w => w.CurtainGrid != null && !IsOuterCurtainWallByModelGroup(w));
-        }
-
-        // Только диагностика исключений фильтра «Наружный витраж» для режима помещений.
-        private static void TraceExcludedOuterCurtainWalls(Document document, TargetTrace targetTrace, string sourcePass)
-        {
-            if (document == null || targetTrace == null) return;
-            foreach (Wall wall in new FilteredElementCollector(document)
-                .OfCategory(BuiltInCategory.OST_Walls)
-                .OfClass(typeof(Wall))
-                .WhereElementIsNotElementType()
-                .Cast<Wall>()
-                .Where(w => w.CurtainGrid != null && !IsOuterCurtainWallByModelGroup(w)))
-            {
-                SourceTrace trace = StartFillTrace(targetTrace, sourcePass, "CurtainWallCandidate", wall);
-                TraceStep step = trace?.StartStep("OuterCurtainWallFilter");
-                AddTraceDetail(step, "hasCurtainGrid", true);
-                AddTraceDetail(step, "modelGroup", wall.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString() ?? "null");
-                trace?.Complete("Skipped", "NotOuterCurtainWall");
-            }
-        }
-
-        // Только диагностика: список, используемый расчётом, не изменяется.
-        private static void TraceExcludedBasicWallCandidates(Document document, TargetTrace targetTrace, string sourcePass)
-        {
-            if (document == null || targetTrace == null) return;
+            if (document == null || trace == null) return 0;
+            int excludedOuterCurtains = 0;
 
             foreach (Wall wall in new FilteredElementCollector(document)
                 .OfCategory(BuiltInCategory.OST_Walls)
@@ -1428,14 +1394,41 @@ namespace CardinalDirectionGlazing
             {
                 bool hasCurtainGrid = wall.CurtainGrid != null;
                 string modelGroup = wall.WallType?.get_Parameter(BuiltInParameter.ALL_MODEL_MODEL)?.AsString();
-                if (!hasCurtainGrid && IsGlazingMarker(modelGroup)) continue;
+                string reasonCode = null;
+                string sourcePass = null;
+                string sourceType = null;
 
-                SourceTrace trace = StartFillTrace(targetTrace, sourcePass, "GlazingWallCandidate", wall);
-                TraceStep step = trace?.StartStep("Candidate");
-                AddTraceDetail(step, "hasCurtainGrid", hasCurtainGrid);
-                AddTraceDetail(step, "modelGroup", modelGroup ?? "null");
-                trace?.Complete("Skipped", hasCurtainGrid ? "CurtainGridWall" : "NotGlazingMarker");
+                if (hasCurtainGrid && includeOuterCurtainFilter && !IsOuterCurtainWallByModelGroup(wall))
+                {
+                    reasonCode = "NotOuterCurtainWall";
+                    sourcePass = sourceDocument + "CurtainWalls";
+                    sourceType = "CurtainWallCandidate";
+                    excludedOuterCurtains++;
+                }
+                else if (!hasCurtainGrid && !IsGlazingMarker(modelGroup))
+                {
+                    reasonCode = "NotGlazingMarker";
+                    sourcePass = sourceDocument + "GlazingWalls";
+                    sourceType = "GlazingWallCandidate";
+                }
+
+                if (reasonCode != null)
+                {
+                    trace.CollectionDiagnostics.Add(new CollectionDiagnosticTrace
+                    {
+                        SourcePass = sourcePass,
+                        SourceType = sourceType,
+                        ElementId = wall.Id.ToString(),
+                        UniqueId = wall.UniqueId,
+                        Document = CreateDocumentTrace(wall.Document),
+                        HasCurtainGrid = hasCurtainGrid,
+                        ModelGroup = modelGroup,
+                        ReasonCode = reasonCode
+                    });
+                }
             }
+
+            return excludedOuterCurtains;
         }
 
         private static SourceTrace StartFillTrace(TargetTrace targetTrace, string sourcePass, string sourceType, Element element)

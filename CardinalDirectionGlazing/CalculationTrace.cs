@@ -13,6 +13,7 @@ namespace CardinalDirectionGlazing
         {
             Targets = new List<TargetTrace>();
             SourceCollectionCounts = new List<SourceCollectionTrace>();
+            CollectionDiagnostics = new List<CollectionDiagnosticTrace>();
         }
 
         public CalculationTrace(string buildVersion, string mode)
@@ -51,12 +52,15 @@ namespace CardinalDirectionGlazing
         public List<SourceCollectionTrace> SourceCollectionCounts { get; set; }
 
         [DataMember(Order = 10)]
-        public string? Outcome { get; set; }
+        public List<CollectionDiagnosticTrace> CollectionDiagnostics { get; set; }
 
         [DataMember(Order = 11)]
-        public string? ReasonCode { get; set; }
+        public string? Outcome { get; set; }
 
         [DataMember(Order = 12)]
+        public string? ReasonCode { get; set; }
+
+        [DataMember(Order = 13)]
         public string? Error { get; set; }
 
         public TargetTrace StartTarget(string uniqueId)
@@ -65,6 +69,34 @@ namespace CardinalDirectionGlazing
             Targets.Add(target);
             return target;
         }
+    }
+
+    [DataContract]
+    public sealed class CollectionDiagnosticTrace
+    {
+        [DataMember(Order = 1)]
+        public string? SourcePass { get; set; }
+
+        [DataMember(Order = 2)]
+        public string? SourceType { get; set; }
+
+        [DataMember(Order = 3)]
+        public string? ElementId { get; set; }
+
+        [DataMember(Order = 4)]
+        public string? UniqueId { get; set; }
+
+        [DataMember(Order = 5)]
+        public DocumentTrace? Document { get; set; }
+
+        [DataMember(Order = 6)]
+        public bool HasCurtainGrid { get; set; }
+
+        [DataMember(Order = 7)]
+        public string? ModelGroup { get; set; }
+
+        [DataMember(Order = 8)]
+        public string? ReasonCode { get; set; }
     }
 
     [DataContract]

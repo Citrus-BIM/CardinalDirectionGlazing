@@ -22,6 +22,7 @@ internal static class Program
         AssertClassified("valid-orientation-with-distorted-bases", 0, 1, 1, 0, 0.98, 0);
         AssertTraceSerializationIncludesSkippedWindow();
         AssertWindowTraceSerializesDiagnosticMetadata();
+        AssertRootCollectionDiagnosticsSerializeOnce();
         AssertDesktopTracePathUsesStableTimestamp();
         AssertTraceWriteDoesNotOverwriteExistingFile();
 
@@ -69,6 +70,24 @@ internal static class Program
         if (!json.Contains("LinkedWindows") || !json.Contains("host-panel-uid") || !json.Contains("roughHeight") || !json.Contains("NoBoundingBox") || !json.Contains("EqualMembershipNoOutsidePoint") || !json.Contains("EqualSpatialMembership"))
         {
             throw new InvalidOperationException("Window trace must serialize its source pass, ownership and diagnostic values.");
+        }
+    }
+
+    private static void AssertRootCollectionDiagnosticsSerializeOnce()
+    {
+        var trace = new CalculationTrace("2026.1", "Rooms");
+        trace.CollectionDiagnostics.Add(new CollectionDiagnosticTrace
+        {
+            SourcePass = "CurrentGlazingWalls",
+            ElementId = "42",
+            UniqueId = "wall-uid",
+            ReasonCode = "NotGlazingMarker"
+        });
+
+        string json = Encoding.UTF8.GetString(CalculationTraceWriter.Serialize(trace));
+        if (!json.Contains("CurrentGlazingWalls") || !json.Contains("wall-uid") || !json.Contains("NotGlazingMarker"))
+        {
+            throw new InvalidOperationException("Root-level collection diagnostics must serialize independently of targets.");
         }
     }
 
