@@ -10,5 +10,6 @@
 
   <ItemGroup>
     <Compile Include="..\CardinalDirectionGlazing\CardinalDirectionClassifier.cs" Link="CardinalDirectionClassifier.cs" />
+    <Compile Include="..\CardinalDirectionGlazing\CalculationTrace.cs" Link="CalculationTrace.cs" />
   </ItemGroup>
 </Project>
