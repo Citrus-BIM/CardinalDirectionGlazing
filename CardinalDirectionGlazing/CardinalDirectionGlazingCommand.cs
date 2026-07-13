@@ -21,14 +21,21 @@ namespace CardinalDirectionGlazing
 
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
+            CalculationTrace trace = new CalculationTrace(
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown",
+                "NotSelected");
+
             try
             {
-                _ = GetPluginStartInfo();
-            }
-            catch { }
+                try
+                {
+                    _ = GetPluginStartInfo();
+                }
+                catch { }
 
-            Document doc = commandData.Application.ActiveUIDocument.Document;
-            Selection sel = commandData.Application.ActiveUIDocument.Selection;
+                Document doc = commandData.Application.ActiveUIDocument.Document;
+                Selection sel = commandData.Application.ActiveUIDocument.Selection;
+                trace.HostDocument = CreateDocumentTrace(doc);
 
             // GUIDы параметров окон по сторонам света
             Guid windowsAreaNorthGuid = new Guid("820af414-f6ec-472d-887c-a2046a0c5988");
@@ -51,8 +58,13 @@ namespace CardinalDirectionGlazing
             cardinalDirectionGlazingWPF.ShowDialog();
             if (cardinalDirectionGlazingWPF.DialogResult != true)
             {
+                CompleteRunTrace(trace, "Cancelled", "DialogCancelled");
                 return Result.Cancelled;
             }
+
+            trace.Mode = cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Spaces"
+                ? "Spaces"
+                : "Rooms";
 
             // Проверка выбранного связанного файла
             if (cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Spaces")
@@ -61,6 +73,7 @@ namespace CardinalDirectionGlazing
                 if (cardinalDirectionGlazingWPF.SelectedRevitLinkInstance == null)
                 {
                     TaskDialog.Show("Revit", "Связанный файл не выбран! Для обработки пространств необходим связанный файл.");
+                    CompleteRunTrace(trace, "Cancelled", "MissingLinkForSpaces");
                     return Result.Cancelled;
                 }
             }
@@ -80,7 +93,14 @@ namespace CardinalDirectionGlazing
             {
                 linkDoc = cardinalDirectionGlazingWPF.SelectedRevitLinkInstance.GetLinkDocument();
                 transform = cardinalDirectionGlazingWPF.SelectedRevitLinkInstance.GetTotalTransform();
+                trace.SelectedLink = CreateLinkTrace(cardinalDirectionGlazingWPF.SelectedRevitLinkInstance, linkDoc, transform);
             }
+
+            trace.TrueNorth = new DirectionTrace
+            {
+                EastBasis = CreateTraceVector(trueNorthBasisX),
+                NorthBasis = CreateTraceVector(trueNorthBasisY)
+            };
 
             // Выбираем обработку: пространства или помещения
             List<Element> elementsList = new List<Element>();
@@ -102,6 +122,7 @@ namespace CardinalDirectionGlazing
                         }
                         catch (Autodesk.Revit.Exceptions.OperationCanceledException)
                         {
+                            CompleteRunTrace(trace, "Cancelled", "SpaceSelectionCancelled");
                             return Result.Cancelled;
                         }
                     }
@@ -135,6 +156,7 @@ namespace CardinalDirectionGlazing
                         }
                         catch (Autodesk.Revit.Exceptions.OperationCanceledException)
                         {
+                            CompleteRunTrace(trace, "Cancelled", "RoomSelectionCancelled");
                             return Result.Cancelled;
                         }
                     }
@@ -155,8 +177,11 @@ namespace CardinalDirectionGlazing
             if (elementsList.Count == 0)
             {
                 TaskDialog.Show("Revit", "Не найдены пространства или помещения для обработки.");
+                CompleteRunTrace(trace, "Cancelled", "NoTargets");
                 return Result.Cancelled;
             }
+
+            trace.TargetCount = elementsList.Count;
 
             // Проверка наличия параметров в первом элементе
             if (elementsList.Count != 0)
@@ -167,48 +192,56 @@ namespace CardinalDirectionGlazing
                 if (firstElement.get_Parameter(windowsAreaNorthGuid) == null)
                 {
                     TaskDialog.Show("Revit", "Параметр \"ПлощадьОкон_С\" не найден! Добавьте параметр.");
+                    CompleteRunTrace(trace, "Cancelled", "MissingParameterNorth");
                     return Result.Cancelled;
                 }
 
                 if (firstElement.get_Parameter(windowsAreaSouthGuid) == null)
                 {
                     TaskDialog.Show("Revit", "Параметр \"ПлощадьОкон_Ю\" не найден! Добавьте параметр.");
+                    CompleteRunTrace(trace, "Cancelled", "MissingParameterSouth");
                     return Result.Cancelled;
                 }
 
                 if (firstElement.get_Parameter(windowsAreaWestGuid) == null)
                 {
                     TaskDialog.Show("Revit", "Параметр \"ПлощадьОкон_З\" не найден! Добавьте параметр.");
+                    CompleteRunTrace(trace, "Cancelled", "MissingParameterWest");
                     return Result.Cancelled;
                 }
 
                 if (firstElement.get_Parameter(windowsAreaEastGuid) == null)
                 {
                     TaskDialog.Show("Revit", "Параметр \"ПлощадьОкон_В\" не найден! Добавьте параметр.");
+                    CompleteRunTrace(trace, "Cancelled", "MissingParameterEast");
                     return Result.Cancelled;
                 }
 
                 if (firstElement.get_Parameter(windowsAreaNorthwestGuid) == null)
                 {
                     TaskDialog.Show("Revit", "Параметр \"ПлощадьОкон_СЗ\" не найден! Добавьте параметр.");
+                    CompleteRunTrace(trace, "Cancelled", "MissingParameterNorthwest");
                     return Result.Cancelled;
                 }
 
                 if (firstElement.get_Parameter(windowsAreaNortheastGuid) == null)
                 {
                     TaskDialog.Show("Revit", "Параметр \"ПлощадьОкон_СВ\" не найден! Добавьте параметр.");
+                    CompleteRunTrace(trace, "Cancelled", "MissingParameterNortheast");
                     return Result.Cancelled;
                 }
 
                 if (firstElement.get_Parameter(windowsAreaSouthwestGuid) == null)
                 {
                     TaskDialog.Show("Revit", "Параметр \"ПлощадьОкон_ЮЗ\" не найден! Добавьте параметр.");
+                    CompleteRunTrace(trace, "Cancelled", "MissingParameterSouthwest");
                     return Result.Cancelled;
                 }
 
                 if (firstElement.get_Parameter(windowsAreaSoutheastGuid) == null)
                 {
                     TaskDialog.Show("Revit", "Параметр \"ПлощадьОкон_ЮВ\" не найден! Добавьте параметр.");
+                    CompleteRunTrace(trace, "Cancelled", "MissingParameterSoutheast");
                     return Result.Cancelled;
                 }
             }
@@ -249,6 +282,7 @@ namespace CardinalDirectionGlazing
                 else
                 {
                     TaskDialog.Show("Revit", "Связанный файл для обработки пространств не найден.");
+                    CompleteRunTrace(trace, "Cancelled", "LinkDocumentUnavailable");
                     return Result.Cancelled;
                 }
             }
@@ -300,6 +334,13 @@ namespace CardinalDirectionGlazing
                 }
             }
 
+            trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "CurrentDocument.Windows", Count = windowsList.Count });
+            trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "CurrentDocument.CurtainWalls", Count = curtainWallsList.Count });
+            trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "CurrentDocument.GlazingBasicWalls", Count = glazingBasicWallsList.Count });
+            trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "LinkedDocument.Windows", Count = linkedWindowsList.Count });
+            trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "LinkedDocument.CurtainWalls", Count = linkedCurtainWallsList.Count });
+            trace.SourceCollectionCounts.Add(new SourceCollectionTrace { Source = "LinkedDocument.GlazingBasicWalls", Count = linkedGlazingBasicWallsList.Count });
+
             // Начинаем транзакцию для обновления данных в Revit
             using (Transaction t = new Transaction(doc))
             {
@@ -307,6 +348,22 @@ namespace CardinalDirectionGlazing
 
                 foreach (Element element in elementsList)
                 {
+                    TargetTrace targetTrace = trace.StartTarget(element.UniqueId);
+                    targetTrace.ElementId = element.Id.ToString();
+                    targetTrace.ElementType = element is Space ? "Space" : element is Room ? "Room" : element.GetType().Name;
+                    targetTrace.Number = GetSpatialNumber(element);
+                    targetTrace.Name = GetSpatialName(element);
+                    targetTrace.ParameterWrites = CreateParameterWriteTraces(
+                        element,
+                        windowsAreaNorthGuid,
+                        windowsAreaSouthGuid,
+                        windowsAreaWestGuid,
+                        windowsAreaEastGuid,
+                        windowsAreaNorthwestGuid,
+                        windowsAreaNortheastGuid,
+                        windowsAreaSouthwestGuid,
+                        windowsAreaSoutheastGuid);
+
                     double windowsAreaNorth = 0;
                     double windowsAreaSouth = 0;
                     double windowsAreaWest = 0;
@@ -317,7 +374,13 @@ namespace CardinalDirectionGlazing
                     double windowsAreaSoutheast = 0;
 
                     Solid elementSolid = GetSolidFromElement(element);
-                    if (elementSolid == null) continue;
+                    targetTrace.SolidFound = elementSolid != null;
+                    targetTrace.SolidVolume = elementSolid?.Volume;
+                    if (elementSolid == null)
+                    {
+                        targetTrace.Complete("Skipped", "NoTargetSolid");
+                        continue;
+                    }
 
                     Transform tr = transform ?? Transform.Identity;
 
@@ -423,21 +486,163 @@ namespace CardinalDirectionGlazing
                         ref windowsAreaSouthwest,
                         ref windowsAreaSoutheast);
 
-                    // Установка значений параметров для каждого элемента
-                    element.get_Parameter(windowsAreaNorthGuid)?.Set(windowsAreaNorth);
-                    element.get_Parameter(windowsAreaSouthGuid)?.Set(windowsAreaSouth);
-                    element.get_Parameter(windowsAreaWestGuid)?.Set(windowsAreaWest);
-                    element.get_Parameter(windowsAreaEastGuid)?.Set(windowsAreaEast);
-                    element.get_Parameter(windowsAreaNorthwestGuid)?.Set(windowsAreaNorthwest);
-                    element.get_Parameter(windowsAreaNortheastGuid)?.Set(windowsAreaNortheast);
-                    element.get_Parameter(windowsAreaSouthwestGuid)?.Set(windowsAreaSouthwest);
-                    element.get_Parameter(windowsAreaSoutheastGuid)?.Set(windowsAreaSoutheast);
+                    targetTrace.Totals = CreateDirectionalAreasTrace(
+                        windowsAreaNorth, windowsAreaSouth, windowsAreaWest, windowsAreaEast,
+                        windowsAreaNorthwest, windowsAreaNortheast, windowsAreaSouthwest, windowsAreaSoutheast);
+
+                    SetParameterWithTrace(element, windowsAreaNorthGuid, windowsAreaNorth, targetTrace.ParameterWrites[0]);
+                    SetParameterWithTrace(element, windowsAreaSouthGuid, windowsAreaSouth, targetTrace.ParameterWrites[1]);
+                    SetParameterWithTrace(element, windowsAreaWestGuid, windowsAreaWest, targetTrace.ParameterWrites[2]);
+                    SetParameterWithTrace(element, windowsAreaEastGuid, windowsAreaEast, targetTrace.ParameterWrites[3]);
+                    SetParameterWithTrace(element, windowsAreaNorthwestGuid, windowsAreaNorthwest, targetTrace.ParameterWrites[4]);
+                    SetParameterWithTrace(element, windowsAreaNortheastGuid, windowsAreaNortheast, targetTrace.ParameterWrites[5]);
+                    SetParameterWithTrace(element, windowsAreaSouthwestGuid, windowsAreaSouthwest, targetTrace.ParameterWrites[6]);
+                    SetParameterWithTrace(element, windowsAreaSoutheastGuid, windowsAreaSoutheast, targetTrace.ParameterWrites[7]);
+                    targetTrace.Complete("Counted", "Completed");
                 }
 
                 t.Commit();
             }
 
+            CompleteRunTrace(trace, "Succeeded", "Completed");
             return Result.Succeeded;
+            }
+            catch (Exception ex)
+            {
+                CompleteRunTrace(trace, "Failed", "UnhandledException", ex.ToString());
+                throw;
+            }
+            finally
+            {
+                if (!CalculationTraceWriter.TryWrite(trace, out _, out string writeError))
+                {
+                    try
+                    {
+                        TaskDialog.Show("Revit", "Не удалось записать диагностический JSON-лог: " + writeError);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+
+        private static void CompleteRunTrace(CalculationTrace trace, string outcome, string reasonCode, string error = null)
+        {
+            trace.Outcome = outcome;
+            trace.ReasonCode = reasonCode;
+            trace.Error = error;
+        }
+
+        private static DocumentTrace CreateDocumentTrace(Document document)
+        {
+            if (document == null) return null;
+
+            return new DocumentTrace
+            {
+                Title = document.Title,
+                PathName = document.PathName
+            };
+        }
+
+        private static LinkTrace CreateLinkTrace(RevitLinkInstance link, Document linkDocument, Transform transform)
+        {
+            return new LinkTrace
+            {
+                ElementId = link?.Id.ToString(),
+                UniqueId = link?.UniqueId,
+                Document = CreateDocumentTrace(linkDocument),
+                Transform = CreateTransformTrace(transform)
+            };
+        }
+
+        private static TransformTrace CreateTransformTrace(Transform transform)
+        {
+            if (transform == null) return null;
+
+            return new TransformTrace
+            {
+                Origin = CreateTraceVector(transform.Origin),
+                BasisX = CreateTraceVector(transform.BasisX),
+                BasisY = CreateTraceVector(transform.BasisY),
+                BasisZ = CreateTraceVector(transform.BasisZ)
+            };
+        }
+
+        private static TraceVector CreateTraceVector(XYZ value)
+        {
+            return value == null ? null : new TraceVector(value.X, value.Y, value.Z);
+        }
+
+        private static string GetSpatialNumber(Element element)
+        {
+            if (element is Space space) return space.Number;
+            if (element is Room room) return room.Number;
+            return null;
+        }
+
+        private static string GetSpatialName(Element element)
+        {
+            if (element is Space space) return space.Name;
+            if (element is Room room) return room.Name;
+            return null;
+        }
+
+        private static List<ParameterWriteTrace> CreateParameterWriteTraces(Element element, params Guid[] parameterGuids)
+        {
+            var traces = new List<ParameterWriteTrace>();
+            foreach (Guid parameterGuid in parameterGuids)
+            {
+                Parameter parameter = element.get_Parameter(parameterGuid);
+                traces.Add(new ParameterWriteTrace
+                {
+                    Guid = parameterGuid.ToString(),
+                    Exists = parameter != null,
+                    IsReadOnly = parameter?.IsReadOnly ?? false,
+                    OldValue = parameter != null && parameter.StorageType == StorageType.Double ? parameter.AsDouble() : (double?)null
+                });
+            }
+
+            return traces;
+        }
+
+        private static DirectionalAreasTrace CreateDirectionalAreasTrace(
+            double north, double south, double west, double east,
+            double northwest, double northeast, double southwest, double southeast)
+        {
+            return new DirectionalAreasTrace
+            {
+                North = north,
+                South = south,
+                West = west,
+                East = east,
+                Northwest = northwest,
+                Northeast = northeast,
+                Southwest = southwest,
+                Southeast = southeast
+            };
+        }
+
+        private static void SetParameterWithTrace(Element element, Guid parameterGuid, double value, ParameterWriteTrace trace)
+        {
+            trace.NewValue = value;
+            Parameter parameter = element.get_Parameter(parameterGuid);
+            if (parameter == null)
+            {
+                trace.SetSucceeded = null;
+                return;
+            }
+
+            try
+            {
+                trace.SetSucceeded = parameter.Set(value);
+            }
+            catch (Exception ex)
+            {
+                trace.Error = ex.ToString();
+                trace.SetSucceeded = false;
+                throw;
+            }
         }
 
         // Дополнительные методы для получения Solid, вычисления площадей и проверки панели

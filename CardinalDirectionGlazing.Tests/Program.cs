@@ -21,6 +21,7 @@ internal static class Program
         AssertClassified("west-boundary-22.5-degrees", -Math.Cos(DegreesToRadians(22.5)), -Math.Sin(DegreesToRadians(22.5)), 1, 0, 0, 1);
         AssertClassified("valid-orientation-with-distorted-bases", 0, 1, 1, 0, 0.98, 0);
         AssertTraceSerializationIncludesSkippedWindow();
+        AssertDesktopTracePathUsesStableTimestamp();
 
         if (CardinalDirectionClassifier.TryClassify(0, 0, 1, 0, 0, 1, out _))
         {
@@ -42,6 +43,17 @@ internal static class Program
         if (!json.Contains("NoArea") || !json.Contains("window-unique-id"))
         {
             throw new InvalidOperationException("Serialized trace must include the skipped reason and window unique id.");
+        }
+    }
+
+    private static void AssertDesktopTracePathUsesStableTimestamp()
+    {
+        string path = CalculationTraceWriter.CreateDesktopPath(new DateTime(2026, 7, 13, 14, 30, 50));
+        string fileName = System.IO.Path.GetFileName(path);
+
+        if (!string.Equals(fileName, "CardinalDirectionGlazing_2026-07-13_143050.json", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Unexpected trace file name: '{fileName}'.");
         }
     }
 

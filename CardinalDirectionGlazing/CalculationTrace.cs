@@ -12,6 +12,7 @@ namespace CardinalDirectionGlazing
         public CalculationTrace()
         {
             Targets = new List<TargetTrace>();
+            SourceCollectionCounts = new List<SourceCollectionTrace>();
         }
 
         public CalculationTrace(string buildVersion, string mode)
@@ -33,6 +34,30 @@ namespace CardinalDirectionGlazing
 
         [DataMember(Order = 4)]
         public List<TargetTrace> Targets { get; set; }
+
+        [DataMember(Order = 5)]
+        public DocumentTrace? HostDocument { get; set; }
+
+        [DataMember(Order = 6)]
+        public LinkTrace? SelectedLink { get; set; }
+
+        [DataMember(Order = 7)]
+        public DirectionTrace? TrueNorth { get; set; }
+
+        [DataMember(Order = 8)]
+        public int TargetCount { get; set; }
+
+        [DataMember(Order = 9)]
+        public List<SourceCollectionTrace> SourceCollectionCounts { get; set; }
+
+        [DataMember(Order = 10)]
+        public string? Outcome { get; set; }
+
+        [DataMember(Order = 11)]
+        public string? ReasonCode { get; set; }
+
+        [DataMember(Order = 12)]
+        public string? Error { get; set; }
 
         public TargetTrace StartTarget(string uniqueId)
         {
@@ -76,6 +101,21 @@ namespace CardinalDirectionGlazing
 
         [DataMember(Order = 7)]
         public List<SourceTrace> Sources { get; set; }
+
+        [DataMember(Order = 8)]
+        public string? ElementType { get; set; }
+
+        [DataMember(Order = 9)]
+        public bool SolidFound { get; set; }
+
+        [DataMember(Order = 10)]
+        public double? SolidVolume { get; set; }
+
+        [DataMember(Order = 11)]
+        public DirectionalAreasTrace? Totals { get; set; }
+
+        [DataMember(Order = 12)]
+        public List<ParameterWriteTrace>? ParameterWrites { get; set; }
 
         public SourceTrace StartSource(string sourceType, string uniqueId)
         {
@@ -221,6 +261,83 @@ namespace CardinalDirectionGlazing
     }
 
     [DataContract]
+    public sealed class DocumentTrace
+    {
+        [DataMember(Order = 1)]
+        public string? Title { get; set; }
+
+        [DataMember(Order = 2)]
+        public string? PathName { get; set; }
+    }
+
+    [DataContract]
+    public sealed class LinkTrace
+    {
+        [DataMember(Order = 1)]
+        public string? ElementId { get; set; }
+
+        [DataMember(Order = 2)]
+        public string? UniqueId { get; set; }
+
+        [DataMember(Order = 3)]
+        public DocumentTrace? Document { get; set; }
+
+        [DataMember(Order = 4)]
+        public TransformTrace? Transform { get; set; }
+    }
+
+    [DataContract]
+    public sealed class TransformTrace
+    {
+        [DataMember(Order = 1)]
+        public TraceVector? Origin { get; set; }
+
+        [DataMember(Order = 2)]
+        public TraceVector? BasisX { get; set; }
+
+        [DataMember(Order = 3)]
+        public TraceVector? BasisY { get; set; }
+
+        [DataMember(Order = 4)]
+        public TraceVector? BasisZ { get; set; }
+    }
+
+    [DataContract]
+    public sealed class SourceCollectionTrace
+    {
+        [DataMember(Order = 1)]
+        public string? Source { get; set; }
+
+        [DataMember(Order = 2)]
+        public int Count { get; set; }
+    }
+
+    [DataContract]
+    public sealed class DirectionalAreasTrace
+    {
+        [DataMember(Order = 1)] public double North { get; set; }
+        [DataMember(Order = 2)] public double South { get; set; }
+        [DataMember(Order = 3)] public double West { get; set; }
+        [DataMember(Order = 4)] public double East { get; set; }
+        [DataMember(Order = 5)] public double Northwest { get; set; }
+        [DataMember(Order = 6)] public double Northeast { get; set; }
+        [DataMember(Order = 7)] public double Southwest { get; set; }
+        [DataMember(Order = 8)] public double Southeast { get; set; }
+    }
+
+    [DataContract]
+    public sealed class ParameterWriteTrace
+    {
+        [DataMember(Order = 1)] public string? Guid { get; set; }
+        [DataMember(Order = 2)] public double? OldValue { get; set; }
+        [DataMember(Order = 3)] public double NewValue { get; set; }
+        [DataMember(Order = 4)] public bool Exists { get; set; }
+        [DataMember(Order = 5)] public bool IsReadOnly { get; set; }
+        [DataMember(Order = 6)] public bool? SetSucceeded { get; set; }
+        [DataMember(Order = 7)] public string? Error { get; set; }
+    }
+
+    [DataContract]
     public sealed class DirectionTrace
     {
         [DataMember(Order = 1)]
@@ -238,6 +355,16 @@ namespace CardinalDirectionGlazing
 
     public static class CalculationTraceWriter
     {
+        public static string CreateDesktopPath(DateTime localNow)
+        {
+            string fileName = string.Format(
+                "CardinalDirectionGlazing_{0:yyyy-MM-dd_HHmmss}.json",
+                localNow);
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                fileName);
+        }
+
         public static byte[] Serialize(CalculationTrace trace)
         {
             if (trace == null)
@@ -250,6 +377,24 @@ namespace CardinalDirectionGlazing
             {
                 serializer.WriteObject(stream, trace);
                 return stream.ToArray();
+            }
+        }
+
+        public static bool TryWrite(CalculationTrace trace, out string path, out string error)
+        {
+            path = string.Empty;
+            error = string.Empty;
+
+            try
+            {
+                path = CreateDesktopPath(DateTime.Now);
+                File.WriteAllBytes(path, Serialize(trace));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
             }
         }
     }
