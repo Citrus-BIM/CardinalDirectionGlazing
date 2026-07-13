@@ -21,6 +21,7 @@ internal static class Program
         AssertClassified("west-boundary-22.5-degrees", -Math.Cos(DegreesToRadians(22.5)), -Math.Sin(DegreesToRadians(22.5)), 1, 0, 0, 1);
         AssertClassified("valid-orientation-with-distorted-bases", 0, 1, 1, 0, 0.98, 0);
         AssertTraceSerializationIncludesSkippedWindow();
+        AssertWindowTraceSerializesDiagnosticMetadata();
         AssertDesktopTracePathUsesStableTimestamp();
         AssertTraceWriteDoesNotOverwriteExistingFile();
 
@@ -44,6 +45,24 @@ internal static class Program
         if (!json.Contains("NoArea") || !json.Contains("window-unique-id"))
         {
             throw new InvalidOperationException("Serialized trace must include the skipped reason and window unique id.");
+        }
+    }
+
+    private static void AssertWindowTraceSerializesDiagnosticMetadata()
+    {
+        var trace = new CalculationTrace("2026.1", "Spaces");
+        SourceTrace source = trace.StartTarget("space-uid").StartSource("Window", "window-uid");
+        source.SourcePass = "LinkedWindows";
+        source.Document = new DocumentTrace { Title = "AR" };
+        source.SuperComponent = "host-panel-uid";
+        TraceStep step = source.StartStep("Area");
+        step.Details["roughHeight"] = "1.5";
+
+        string json = Encoding.UTF8.GetString(CalculationTraceWriter.Serialize(trace));
+
+        if (!json.Contains("LinkedWindows") || !json.Contains("host-panel-uid") || !json.Contains("roughHeight"))
+        {
+            throw new InvalidOperationException("Window trace must serialize its source pass, ownership and diagnostic values.");
         }
     }
 

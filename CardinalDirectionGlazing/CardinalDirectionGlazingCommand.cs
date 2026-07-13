@@ -390,6 +390,8 @@ namespace CardinalDirectionGlazing
                         element,
                         elementSolid,
                         doc,
+                        targetTrace,
+                        "CurrentWindows",
                         trueNorthBasisX,
                         trueNorthBasisY,
                         ref windowsAreaNorth,
@@ -441,6 +443,8 @@ namespace CardinalDirectionGlazing
                         element,
                         elementSolid,
                         doc,
+                        targetTrace,
+                        "LinkedWindows",
                         trueNorthBasisX,
                         trueNorthBasisY,
                         ref windowsAreaNorth,
@@ -574,6 +578,34 @@ namespace CardinalDirectionGlazing
             return value == null ? null : new TraceVector(value.X, value.Y, value.Z);
         }
 
+        private static TracePoint CreateTracePoint(string name, XYZ value)
+        {
+            return new TracePoint(name, value.X, value.Y, value.Z);
+        }
+
+        private static void AddTraceDetail(TraceStep step, string key, object value)
+        {
+            if (step != null)
+            {
+                step.Details[key] = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        private static bool TraceSpatialMembership(TraceStep step, string pointName, Element targetElement, Document hostDocument, XYZ point)
+        {
+            try
+            {
+                bool inside = IsPointInSpatialElement(targetElement, point);
+                step?.Details.Add(pointName + "Inside", inside.ToString());
+                return inside;
+            }
+            catch (Exception ex)
+            {
+                step?.Details.Add("apiException", ex.ToString());
+                throw;
+            }
+        }
+
         private static string GetSpatialNumber(Element element)
         {
             if (element is Space space) return space.Number;
@@ -675,16 +707,30 @@ namespace CardinalDirectionGlazing
             return null;
         }
 
-        private double GetWindowArea(FamilyInstance window)
+        private double GetWindowArea(FamilyInstance window, SourceTrace trace = null)
         {
-            if (window?.Symbol == null) return 0.0;
+            TraceStep step = trace?.StartStep("Area");
+            if (window?.Symbol == null)
+            {
+                step?.Details.Add("symbol", "null");
+                return 0.0;
+            }
 
             double roughHeight = window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM)?.AsDouble() ?? 0.0;
             double roughWidth = window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM)?.AsDouble() ?? 0.0;
             double caseworkHeight = window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_HEIGHT)?.AsDouble() ?? 0.0;
             double caseworkWidth = window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_WIDTH)?.AsDouble() ?? 0.0;
-
-            return Math.Max(roughHeight, caseworkHeight) * Math.Max(roughWidth, caseworkWidth);
+            double selectedHeight = Math.Max(roughHeight, caseworkHeight);
+            double selectedWidth = Math.Max(roughWidth, caseworkWidth);
+            double area = selectedHeight * selectedWidth;
+            AddTraceDetail(step, "roughHeight", roughHeight);
+            AddTraceDetail(step, "roughWidth", roughWidth);
+            AddTraceDetail(step, "caseworkHeight", caseworkHeight);
+            AddTraceDetail(step, "caseworkWidth", caseworkWidth);
+            AddTraceDetail(step, "selectedHeight", selectedHeight);
+            AddTraceDetail(step, "selectedWidth", selectedWidth);
+            AddTraceDetail(step, "area", area);
+            return area;
         }
 
         private void ProcessWindows(
@@ -693,6 +739,8 @@ namespace CardinalDirectionGlazing
             Element targetElement,
             Solid targetSolid,
             Document hostDocument,
+            TargetTrace targetTrace,
+            string sourcePass,
             XYZ trueNorthBasisX,
             XYZ trueNorthBasisY,
             ref double windowsAreaNorth,
@@ -714,12 +762,27 @@ namespace CardinalDirectionGlazing
                 if (window == null)
                     continue;
 
-                double windowArea = GetWindowArea(window);
-                if (windowArea <= 0)
-                    continue;
+                SourceTrace sourceTrace = targetTrace?.StartSource("Window", window.UniqueId);
+                if (sourceTrace != null)
+                {
+                    sourceTrace.SourcePass = sourcePass;
+                    sourceTrace.ElementId = window.Id.ToString();
+                    sourceTrace.Document = CreateDocumentTrace(window.Document);
+                    sourceTrace.SuperComponent = window.SuperComponent?.UniqueId;
+                }
 
-                if (!TryGetWindowExteriorDirection(window, tr, targetElement, targetSolid, hostDocument, out XYZ exteriorDirection))
+                double windowArea = GetWindowArea(window, sourceTrace);
+                if (windowArea <= 0)
+                {
+                    sourceTrace?.Complete("Skipped", "NoArea");
                     continue;
+                }
+
+                if (!TryGetWindowExteriorDirection(window, tr, targetElement, targetSolid, hostDocument, sourceTrace, out XYZ exteriorDirection))
+                {
+                    sourceTrace?.Complete("Skipped", sourceTrace?.ReasonCode ?? "NoSpatialAssociation");
+                    continue;
+                }
 
                 UpdateWindowAreas(
                     ref windowsAreaNorth,
@@ -733,7 +796,10 @@ namespace CardinalDirectionGlazing
                     windowArea,
                     exteriorDirection,
                     trueNorthBasisX,
-                    trueNorthBasisY);
+                    trueNorthBasisY,
+                    sourceTrace);
+
+                sourceTrace?.Complete(sourceTrace?.Direction?.Accepted == true ? "Counted" : "Skipped", sourceTrace?.Direction?.Accepted == true ? sourceTrace.ReasonCode ?? "SpatialProbe" : "InvalidDirection");
             }
         }
 
@@ -743,6 +809,7 @@ namespace CardinalDirectionGlazing
             Element targetElement,
             Solid targetSolid,
             Document hostDocument,
+            SourceTrace sourceTrace,
             out XYZ exteriorDirection)
         {
             exteriorDirection = null;
@@ -755,12 +822,30 @@ namespace CardinalDirectionGlazing
             XYZ facing = tr.OfVector(window.FacingOrientation);
             bool isInteriorOpening = false;
 
+            TraceStep geometryStep = sourceTrace?.StartStep("Geometry");
+            geometryStep?.Points.Add(CreateTracePoint("facing", facing));
+            if (windowBoundingBox == null)
+            {
+                geometryStep?.Details.Add("boundingBox", "null");
+                sourceTrace?.Complete("Skipped", "NoBoundingBox");
+            }
+            else
+            {
+                XYZ center = tr.OfPoint((windowBoundingBox.Max + windowBoundingBox.Min) / 2);
+                geometryStep?.Points.Add(CreateTracePoint("boundingBoxMin", tr.OfPoint(windowBoundingBox.Min)));
+                geometryStep?.Points.Add(CreateTracePoint("boundingBoxMax", tr.OfPoint(windowBoundingBox.Max)));
+                geometryStep?.Points.Add(CreateTracePoint("center", center));
+            }
+            if (facing.GetLength() <= 1e-9)
+                sourceTrace?.Complete("Skipped", "NoOrientation");
+
             if (windowBoundingBox != null
                 && TryGetExteriorDirectionFromSpatialProbes(
                     tr.OfPoint((windowBoundingBox.Max + windowBoundingBox.Min) / 2),
                     facing,
                     targetElement,
                     hostDocument,
+                    sourceTrace,
                     out exteriorDirection,
                     out isInteriorOpening))
             {
@@ -768,13 +853,17 @@ namespace CardinalDirectionGlazing
             }
 
             if (isInteriorOpening)
+            {
+                sourceTrace?.Complete("Skipped", "InteriorOpening");
                 return false;
+            }
 
             if (TryGetWindowExteriorDirectionFromCalculationPoints(
                 window,
                 sourceToHostTransform,
                 targetElement,
                 hostDocument,
+                sourceTrace,
                 out exteriorDirection,
                 out isInteriorOpening))
             {
@@ -782,13 +871,19 @@ namespace CardinalDirectionGlazing
             }
 
             if (isInteriorOpening)
+            {
+                sourceTrace?.Complete("Skipped", "InteriorOpening");
                 return false;
+            }
 
-            return TryGetWindowExteriorDirectionFromFallbackRay(
+            bool fallback = TryGetWindowExteriorDirectionFromFallbackRay(
                 window,
                 sourceToHostTransform,
                 targetSolid,
+                sourceTrace,
                 out exteriorDirection);
+            if (fallback) sourceTrace.ReasonCode = "SolidRay";
+            return fallback;
         }
 
         private bool TryGetWindowExteriorDirectionFromCalculationPoints(
@@ -796,6 +891,7 @@ namespace CardinalDirectionGlazing
             Transform sourceToHostTransform,
             Element targetElement,
             Document hostDocument,
+            SourceTrace sourceTrace,
             out XYZ exteriorDirection,
             out bool isInteriorOpening)
         {
@@ -805,7 +901,10 @@ namespace CardinalDirectionGlazing
             if (window == null || targetElement == null || hostDocument == null)
                 return false;
 
-            if (!window.HasSpatialElementFromToCalculationPoints)
+            TraceStep step = sourceTrace?.StartStep("CalculationPoints");
+            bool hasCalculationPoints = window.HasSpatialElementFromToCalculationPoints;
+            step?.Details.Add("hasSpatialElementFromToCalculationPoints", hasCalculationPoints.ToString());
+            if (!hasCalculationPoints)
                 return false;
 
             IList<XYZ> points;
@@ -813,8 +912,9 @@ namespace CardinalDirectionGlazing
             {
                 points = window.GetSpatialElementFromToCalculationPoints();
             }
-            catch
+            catch (Exception ex)
             {
+                step?.Details.Add("apiException", ex.ToString());
                 return false;
             }
 
@@ -825,9 +925,13 @@ namespace CardinalDirectionGlazing
 
             XYZ pointA = tr.OfPoint(points[0]);
             XYZ pointB = tr.OfPoint(points[1]);
+            step?.Points.Add(CreateTracePoint("rawPointA", points[0]));
+            step?.Points.Add(CreateTracePoint("rawPointB", points[1]));
+            step?.Points.Add(CreateTracePoint("pointA", pointA));
+            step?.Points.Add(CreateTracePoint("pointB", pointB));
 
-            bool pointAInside = IsPointInSpatialElement(targetElement, pointA);
-            bool pointBInside = IsPointInSpatialElement(targetElement, pointB);
+            bool pointAInside = TraceSpatialMembership(step, "pointA", targetElement, hostDocument, pointA);
+            bool pointBInside = TraceSpatialMembership(step, "pointB", targetElement, hostDocument, pointB);
 
             if (pointAInside == pointBInside)
                 return false;
@@ -835,7 +939,7 @@ namespace CardinalDirectionGlazing
             XYZ insidePoint = pointAInside ? pointA : pointB;
             XYZ outsidePoint = pointAInside ? pointB : pointA;
 
-            if (IsPointInAnotherSpatialElement(hostDocument, targetElement, outsidePoint))
+            if (IsPointInAnotherSpatialElement(hostDocument, targetElement, outsidePoint, step, "outside"))
             {
                 isInteriorOpening = true;
                 return false;
@@ -846,6 +950,7 @@ namespace CardinalDirectionGlazing
                 return false;
 
             exteriorDirection = direction.Normalize();
+            sourceTrace.ReasonCode = "CalculationPoints";
             return true;
         }
 
@@ -854,6 +959,7 @@ namespace CardinalDirectionGlazing
             XYZ facing,
             Element targetElement,
             Document hostDocument,
+            SourceTrace sourceTrace,
             out XYZ exteriorDirection,
             out bool isInteriorOpening)
         {
@@ -873,20 +979,25 @@ namespace CardinalDirectionGlazing
             {
                 XYZ front = center + horizontalFacing * distance;
                 XYZ back = center - horizontalFacing * distance;
-                bool frontInside = IsPointInSpatialElement(targetElement, front);
-                bool backInside = IsPointInSpatialElement(targetElement, back);
+                TraceStep step = sourceTrace?.StartStep("SpatialProbe");
+                AddTraceDetail(step, "distanceMm", distance * 304.8);
+                step?.Points.Add(CreateTracePoint("front", front));
+                step?.Points.Add(CreateTracePoint("back", back));
+                bool frontInside = TraceSpatialMembership(step, "front", targetElement, hostDocument, front);
+                bool backInside = TraceSpatialMembership(step, "back", targetElement, hostDocument, back);
 
                 if (frontInside == backInside)
                     continue;
 
                 XYZ outsidePoint = frontInside ? back : front;
-                if (IsPointInAnotherSpatialElement(hostDocument, targetElement, outsidePoint))
+                if (IsPointInAnotherSpatialElement(hostDocument, targetElement, outsidePoint, step, "outside"))
                 {
                     isInteriorOpening = true;
                     return false;
                 }
 
                 exteriorDirection = frontInside ? horizontalFacing.Negate() : horizontalFacing;
+                if (sourceTrace != null) sourceTrace.ReasonCode = "SpatialProbe";
                 return true;
             }
 
@@ -897,6 +1008,7 @@ namespace CardinalDirectionGlazing
             FamilyInstance window,
             Transform sourceToHostTransform,
             Solid targetSolid,
+            SourceTrace sourceTrace,
             out XYZ exteriorDirection)
         {
             exteriorDirection = null;
@@ -916,7 +1028,20 @@ namespace CardinalDirectionGlazing
             XYZ windowCenter = tr.OfPoint((windowBoundingBox.Max + windowBoundingBox.Min) / 2);
             Curve windowCurve = Line.CreateBound(windowCenter, windowCenter + facing.Negate() * 700 / 304.8);
 
-            SolidCurveIntersection intersection = targetSolid.IntersectWithCurve(windowCurve, new SolidCurveIntersectionOptions());
+            SolidCurveIntersection intersection;
+            TraceStep step = sourceTrace?.StartStep("FallbackSolidRay");
+            step?.Points.Add(CreateTracePoint("start", windowCenter));
+            step?.Points.Add(CreateTracePoint("end", windowCenter + facing.Negate() * 700 / 304.8));
+            try
+            {
+                intersection = targetSolid.IntersectWithCurve(windowCurve, new SolidCurveIntersectionOptions());
+            }
+            catch (Exception ex)
+            {
+                step?.Details.Add("apiException", ex.ToString());
+                throw;
+            }
+            AddTraceDetail(step, "segmentCount", intersection.SegmentCount);
             if (intersection.SegmentCount == 0)
                 return false;
 
@@ -934,29 +1059,46 @@ namespace CardinalDirectionGlazing
             };
         }
 
-        private static bool IsPointInAnotherSpatialElement(Document hostDocument, Element targetElement, XYZ point)
+        private static bool IsPointInAnotherSpatialElement(Document hostDocument, Element targetElement, XYZ point, TraceStep traceStep = null, string pointName = null)
         {
-            Phase? phase = GetElementPhase(hostDocument, targetElement);
-
-            if (targetElement is Room)
+            try
             {
-                Room containingRoom = phase != null
-                    ? hostDocument.GetRoomAtPoint(point, phase)
-                    : hostDocument.GetRoomAtPoint(point);
+                Phase? phase = GetElementPhase(hostDocument, targetElement);
 
-                return containingRoom != null && containingRoom.Id != targetElement.Id;
+                if (targetElement is Room)
+                {
+                    Room containingRoom = phase != null
+                        ? hostDocument.GetRoomAtPoint(point, phase)
+                        : hostDocument.GetRoomAtPoint(point);
+
+                    TraceOtherSpatialElement(traceStep, pointName, containingRoom);
+                    return containingRoom != null && containingRoom.Id != targetElement.Id;
+                }
+
+                if (targetElement is Space)
+                {
+                    Space containingSpace = phase != null
+                        ? hostDocument.GetSpaceAtPoint(point, phase)
+                        : hostDocument.GetSpaceAtPoint(point);
+
+                    TraceOtherSpatialElement(traceStep, pointName, containingSpace);
+                    return containingSpace != null && containingSpace.Id != targetElement.Id;
+                }
+
+                return false;
             }
-
-            if (targetElement is Space)
+            catch (Exception ex)
             {
-                Space containingSpace = phase != null
-                    ? hostDocument.GetSpaceAtPoint(point, phase)
-                    : hostDocument.GetSpaceAtPoint(point);
-
-                return containingSpace != null && containingSpace.Id != targetElement.Id;
+                traceStep?.Details.Add("apiException", ex.ToString());
+                throw;
             }
+        }
 
-            return false;
+        private static void TraceOtherSpatialElement(TraceStep step, string pointName, Element containingElement)
+        {
+            if (step == null) return;
+            step.Details[(pointName ?? "point") + "OtherSpatialElementId"] = containingElement?.Id.ToString() ?? string.Empty;
+            step.Details[(pointName ?? "point") + "OtherSpatialElementUniqueId"] = containingElement?.UniqueId ?? string.Empty;
         }
 
         private static Phase? GetElementPhase(Document hostDocument, Element element)
@@ -1168,6 +1310,7 @@ namespace CardinalDirectionGlazing
                     facing,
                     targetElement,
                     targetElement.Document,
+                    null,
                     out XYZ exteriorDirection,
                     out bool isInteriorOpening))
                 {
@@ -1283,9 +1426,10 @@ namespace CardinalDirectionGlazing
                     if (TryGetExteriorDirectionFromSpatialProbes(
                         center,
                         facing,
-                        targetElement,
-                        targetElement.Document,
-                        out XYZ exteriorDirection,
+                    targetElement,
+                    targetElement.Document,
+                    null,
+                    out XYZ exteriorDirection,
                         out bool isInteriorOpening))
                     {
                         UpdateWindowAreas(
@@ -1413,8 +1557,15 @@ namespace CardinalDirectionGlazing
         private void UpdateWindowAreas(
             ref double north, ref double south, ref double west, ref double east,
             ref double northwest, ref double northeast, ref double southwest, ref double southeast,
-            double area, XYZ orientation, XYZ trueNorthBasisX, XYZ trueNorthBasisY)
+            double area, XYZ orientation, XYZ trueNorthBasisX, XYZ trueNorthBasisY, SourceTrace sourceTrace = null)
         {
+            DirectionTrace directionTrace = sourceTrace == null ? null : new DirectionTrace
+            {
+                ExteriorVector = CreateTraceVector(orientation),
+                EastBasis = CreateTraceVector(trueNorthBasisX),
+                NorthBasis = CreateTraceVector(trueNorthBasisY),
+                Area = area
+            };
             if (!CardinalDirectionClassifier.TryClassify(
                 orientation.X,
                 orientation.Y,
@@ -1424,35 +1575,70 @@ namespace CardinalDirectionGlazing
                 trueNorthBasisY.Y,
                 out CardinalDirectionBucket bucket))
             {
+                if (directionTrace != null)
+                {
+                    directionTrace.Accepted = false;
+                    sourceTrace.Direction = directionTrace;
+                }
                 return;
             }
+
+            double before;
+            double after;
 
             switch (bucket)
             {
                 case CardinalDirectionBucket.North:
+                    before = north;
                     north += area;
+                    after = north;
                     break;
                 case CardinalDirectionBucket.South:
+                    before = south;
                     south += area;
+                    after = south;
                     break;
                 case CardinalDirectionBucket.West:
+                    before = west;
                     west += area;
+                    after = west;
                     break;
                 case CardinalDirectionBucket.East:
+                    before = east;
                     east += area;
+                    after = east;
                     break;
                 case CardinalDirectionBucket.Northwest:
+                    before = northwest;
                     northwest += area;
+                    after = northwest;
                     break;
                 case CardinalDirectionBucket.Northeast:
+                    before = northeast;
                     northeast += area;
+                    after = northeast;
                     break;
                 case CardinalDirectionBucket.Southwest:
+                    before = southwest;
                     southwest += area;
+                    after = southwest;
                     break;
                 case CardinalDirectionBucket.Southeast:
+                    before = southeast;
                     southeast += area;
+                    after = southeast;
                     break;
+                default:
+                    return;
+            }
+
+            if (directionTrace != null)
+            {
+                directionTrace.Accepted = true;
+                directionTrace.Bucket = bucket.ToString();
+                directionTrace.BucketValueBefore = before;
+                directionTrace.BucketValueAfter = after;
+                sourceTrace.Direction = directionTrace;
             }
         }
 

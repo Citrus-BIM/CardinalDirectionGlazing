@@ -167,6 +167,15 @@ namespace CardinalDirectionGlazing
         [DataMember(Order = 7)]
         public DirectionTrace? Direction { get; set; }
 
+        [DataMember(Order = 8)]
+        public string? SourcePass { get; set; }
+
+        [DataMember(Order = 9)]
+        public DocumentTrace? Document { get; set; }
+
+        [DataMember(Order = 10)]
+        public string? SuperComponent { get; set; }
+
         public TraceStep StartStep(string name)
         {
             var step = new TraceStep(name);
@@ -187,6 +196,7 @@ namespace CardinalDirectionGlazing
         public TraceStep()
         {
             Points = new List<TracePoint>();
+            Details = new Dictionary<string, string>();
         }
 
         public TraceStep(string name)
@@ -206,6 +216,9 @@ namespace CardinalDirectionGlazing
 
         [DataMember(Order = 4)]
         public List<TracePoint> Points { get; set; }
+
+        [DataMember(Order = 5)]
+        public Dictionary<string, string> Details { get; set; }
     }
 
     [DataContract]
@@ -351,6 +364,18 @@ namespace CardinalDirectionGlazing
 
         [DataMember(Order = 4)]
         public string? Bucket { get; set; }
+
+        [DataMember(Order = 5)]
+        public bool Accepted { get; set; }
+
+        [DataMember(Order = 6)]
+        public double Area { get; set; }
+
+        [DataMember(Order = 7)]
+        public double? BucketValueBefore { get; set; }
+
+        [DataMember(Order = 8)]
+        public double? BucketValueAfter { get; set; }
     }
 
     public static class CalculationTraceWriter
