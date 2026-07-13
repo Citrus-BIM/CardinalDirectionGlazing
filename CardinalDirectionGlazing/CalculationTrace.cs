@@ -433,7 +433,7 @@ namespace CardinalDirectionGlazing
         public static string CreateDesktopPath(DateTime localNow)
         {
             string fileName = string.Format(
-                "CardinalDirectionGlazing_{0:yyyy-MM-dd_HHmmss}.json",
+                "CardinalDirectionGlazing_{0:yyyyMMdd_HHmmss_fff}.json",
                 localNow);
             return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),

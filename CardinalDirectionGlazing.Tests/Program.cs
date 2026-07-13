@@ -105,7 +105,7 @@ internal static class Program
         string path = CalculationTraceWriter.CreateDesktopPath(new DateTime(2026, 7, 13, 14, 30, 50));
         string fileName = System.IO.Path.GetFileName(path);
 
-        if (!string.Equals(fileName, "CardinalDirectionGlazing_2026-07-13_143050.json", StringComparison.Ordinal))
+        if (!string.Equals(fileName, "CardinalDirectionGlazing_20260713_143050_000.json", StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Unexpected trace file name: '{fileName}'.");
         }
@@ -114,7 +114,7 @@ internal static class Program
     private static void AssertTraceWriteDoesNotOverwriteExistingFile()
     {
         string directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "CardinalDirectionGlazing.Tests", Guid.NewGuid().ToString("N"));
-        string requestedPath = System.IO.Path.Combine(directory, "CardinalDirectionGlazing_2026-07-13_143050.json");
+        string requestedPath = System.IO.Path.Combine(directory, "CardinalDirectionGlazing_20260713_143050_000.json");
         var trace = new CalculationTrace("2026.1", "Rooms");
 
         try
