@@ -606,20 +606,6 @@ namespace CardinalDirectionGlazing
             }
         }
 
-        private static void TraceOtherSpatialLookup(TraceStep step, string pointName, Document hostDocument, Element targetElement, XYZ point)
-        {
-            try
-            {
-                bool isAnotherSpatialElement = IsPointInAnotherSpatialElement(hostDocument, targetElement, point, step, pointName);
-                step?.Details.Add(pointName + "IsAnotherSpatialElement", isAnotherSpatialElement.ToString());
-            }
-            catch (Exception ex)
-            {
-                // This lookup is diagnostic-only; a failure must not affect the calculation branch.
-                step?.Details.Add(pointName + "OtherSpatialLookupApiException", ex.ToString());
-            }
-        }
-
         private static string GetSpatialNumber(Element element)
         {
             if (element is Space space) return space.Number;
@@ -1015,14 +1001,17 @@ namespace CardinalDirectionGlazing
                 step?.Points.Add(CreateTracePoint("back", back));
                 bool frontInside = TraceSpatialMembership(step, "front", targetElement, hostDocument, front);
                 bool backInside = TraceSpatialMembership(step, "back", targetElement, hostDocument, back);
-                TraceOtherSpatialLookup(step, "front", hostDocument, targetElement, front);
-                TraceOtherSpatialLookup(step, "back", hostDocument, targetElement, back);
 
                 if (frontInside == backInside)
+                {
+                    MarkOtherSpatialLookupNotEvaluated(step, "front");
+                    MarkOtherSpatialLookupNotEvaluated(step, "back");
                     continue;
+                }
 
                 XYZ outsidePoint = frontInside ? back : front;
-                if (IsPointInAnotherSpatialElement(hostDocument, targetElement, outsidePoint, step, "outside"))
+                string outsidePointName = frontInside ? "back" : "front";
+                if (IsPointInAnotherSpatialElement(hostDocument, targetElement, outsidePoint, step, outsidePointName))
                 {
                     isInteriorOpening = true;
                     return false;
@@ -1119,7 +1108,9 @@ namespace CardinalDirectionGlazing
                         : hostDocument.GetRoomAtPoint(point);
 
                     TraceOtherSpatialElement(traceStep, pointName, containingRoom);
-                    return containingRoom != null && containingRoom.Id != targetElement.Id;
+                    bool isAnotherRoom = containingRoom != null && containingRoom.Id != targetElement.Id;
+                    TraceOtherSpatialLookupResult(traceStep, pointName, isAnotherRoom);
+                    return isAnotherRoom;
                 }
 
                 if (targetElement is Space)
@@ -1129,7 +1120,9 @@ namespace CardinalDirectionGlazing
                         : hostDocument.GetSpaceAtPoint(point);
 
                     TraceOtherSpatialElement(traceStep, pointName, containingSpace);
-                    return containingSpace != null && containingSpace.Id != targetElement.Id;
+                    bool isAnotherSpace = containingSpace != null && containingSpace.Id != targetElement.Id;
+                    TraceOtherSpatialLookupResult(traceStep, pointName, isAnotherSpace);
+                    return isAnotherSpace;
                 }
 
                 return false;
@@ -1146,6 +1139,20 @@ namespace CardinalDirectionGlazing
             if (step == null) return;
             step.Details[(pointName ?? "point") + "OtherSpatialElementId"] = containingElement?.Id.ToString() ?? string.Empty;
             step.Details[(pointName ?? "point") + "OtherSpatialElementUniqueId"] = containingElement?.UniqueId ?? string.Empty;
+            step.Details[(pointName ?? "point") + "OtherSpatialLookupOutcome"] = "Evaluated";
+        }
+
+        private static void TraceOtherSpatialLookupResult(TraceStep step, string pointName, bool isAnother)
+        {
+            if (step == null) return;
+            step.Details[(pointName ?? "point") + "IsAnotherSpatialElement"] = isAnother.ToString();
+        }
+
+        private static void MarkOtherSpatialLookupNotEvaluated(TraceStep step, string pointName)
+        {
+            if (step == null) return;
+            step.Details[pointName + "OtherSpatialLookupOutcome"] = "NotEvaluated";
+            step.Details[pointName + "OtherSpatialLookupReason"] = "EqualMembershipNoOutsidePoint";
         }
 
         private static Phase? GetElementPhase(Document hostDocument, Element element)
