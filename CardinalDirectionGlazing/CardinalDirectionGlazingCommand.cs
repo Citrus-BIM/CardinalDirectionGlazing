@@ -18,6 +18,8 @@ namespace CardinalDirectionGlazing
         // Значения-эталоны (можно вынести в настройки, если потребуется)
         private const string CurtainPanelConstructionTypeGlazing = "Остекление";
         private const string BasicWallModelGroupGlazing = "Остекления";
+        // Временная диагностическая трассировка остаётся в коде для отладки, но запись JSON отключена.
+        private const bool WriteCalculationTraceToDesktop = false;
 
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
@@ -560,7 +562,8 @@ namespace CardinalDirectionGlazing
             }
             finally
             {
-                if (!CalculationTraceWriter.TryWrite(trace, out _, out string writeError))
+                if (WriteCalculationTraceToDesktop
+                    && !CalculationTraceWriter.TryWrite(trace, out _, out string writeError))
                 {
                     try
                     {
