@@ -30,6 +30,7 @@ internal static class Program
         AssertWindowAreaResolution();
         AssertWindowAreaUsageSummaryDeduplicatesWindows();
         AssertWindowAreaSettingsRoundTrip();
+        AssertWindowAreaParameterControlsExist();
 
         if (CardinalDirectionClassifier.TryClassify(0, 0, 1, 0, 0, 1, out _))
         {
@@ -224,6 +225,25 @@ internal static class Program
             || actual.WindowAreaParameterGuid != expected.WindowAreaParameterGuid)
         {
             throw new InvalidOperationException("Window area parameter settings did not round-trip.");
+        }
+    }
+
+    private static void AssertWindowAreaParameterControlsExist()
+    {
+        string path = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing", "CardinalDirectionGlazingWPF.xaml");
+        string xaml = File.ReadAllText(path);
+        string[] required =
+        {
+            "Header=\"Площадь остекления из параметра\"",
+            "x:Name=\"checkBox_WindowAreaFromParameter\"",
+            "Content=\"Окна\"",
+            "x:Name=\"comboBox_WindowAreaParameter\""
+        };
+
+        foreach (string marker in required)
+        {
+            if (!xaml.Contains(marker))
+                throw new InvalidOperationException($"Window area UI marker is missing: {marker}");
         }
     }
 

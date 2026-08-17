@@ -65,6 +65,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0"
@@ -213,7 +214,28 @@
             </GroupBox>
         </Grid>
 
-        <Border Grid.Row="2"
+        <GroupBox Grid.Row="2"
+                  Header="Площадь остекления из параметра"
+                  Style="{StaticResource CompactGroupBox}">
+            <Grid Margin="8,6,8,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <CheckBox x:Name="checkBox_WindowAreaFromParameter"
+                          Grid.Column="0"
+                          Content="Окна"
+                          VerticalAlignment="Center"/>
+                <ComboBox x:Name="comboBox_WindowAreaParameter"
+                          Grid.Column="2"
+                          MinWidth="360"
+                          DisplayMemberPath="DisplayName"
+                          IsEnabled="{Binding IsChecked, ElementName=checkBox_WindowAreaFromParameter}"/>
+            </Grid>
+        </GroupBox>
+
+        <Border Grid.Row="3"
                 BorderBrush="{DynamicResource DividerBrush}"
                 BorderThickness="0,1,0,0"
                 Padding="0,14,0,0">

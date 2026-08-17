@@ -55,8 +55,12 @@ namespace CardinalDirectionGlazing
                 .Cast<RevitLinkInstance>()
                 .ToList();
 
+            IReadOnlyList<WindowAreaParameterOption> windowAreaParameters =
+                WindowAreaParameterCatalog.Collect(doc, revitLinkInstanceList);
+
             // Открываем окно WPF для выбора опций
-            CardinalDirectionGlazingWPF cardinalDirectionGlazingWPF = new CardinalDirectionGlazingWPF(revitLinkInstanceList);
+            CardinalDirectionGlazingWPF cardinalDirectionGlazingWPF =
+                new CardinalDirectionGlazingWPF(revitLinkInstanceList, windowAreaParameters);
             cardinalDirectionGlazingWPF.ShowDialog();
             if (cardinalDirectionGlazingWPF.DialogResult != true)
             {

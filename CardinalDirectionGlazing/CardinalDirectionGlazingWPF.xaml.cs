@@ -1,4 +1,5 @@
 ﻿using Autodesk.Revit.DB;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -14,17 +15,23 @@ namespace CardinalDirectionGlazing
         private const string HintRooms = "Текущий файл или выбранная связь.";
 
         private readonly List<RevitLinkInstance> _revitLinkInstances;
+        private readonly IReadOnlyList<WindowAreaParameterOption> _windowAreaParameters;
         private bool _uiReady;
 
         public RevitLinkInstance? SelectedRevitLinkInstance;
         public string SpacesForProcessingButtonName = string.Empty;
         public string SpacesOrRoomsForProcessingButtonName = string.Empty;
+        public bool UseWindowAreaParameter { get; private set; }
+        public WindowAreaParameterOption? SelectedWindowAreaParameter { get; private set; }
 
         CardinalDirectionGlazingSettings? CardinalDirectionGlazingSettingsItem = null;
 
-        public CardinalDirectionGlazingWPF(List<RevitLinkInstance> revitLinkInstanceList)
+        public CardinalDirectionGlazingWPF(
+            List<RevitLinkInstance> revitLinkInstanceList,
+            IReadOnlyList<WindowAreaParameterOption> windowAreaParameters)
         {
             _revitLinkInstances = revitLinkInstanceList;
+            _windowAreaParameters = windowAreaParameters ?? new List<WindowAreaParameterOption>();
             InitializeComponent();
 
             CardinalDirectionGlazingSettingsItem = CardinalDirectionGlazingSettings.GetSettings();
@@ -32,6 +39,7 @@ namespace CardinalDirectionGlazing
 
             listBox_RevitLinkInstance.ItemsSource = _revitLinkInstances;
             listBox_RevitLinkInstance.DisplayMemberPath = "Name";
+            comboBox_WindowAreaParameter.ItemsSource = _windowAreaParameters;
 
             bool hasLinks = _revitLinkInstances.Count > 0;
 
@@ -84,6 +92,8 @@ namespace CardinalDirectionGlazing
                     listBox_RevitLinkInstance.SelectedItem = _revitLinkInstances[0];
             }
 
+            RestoreWindowAreaParameterSelection();
+
             radioButton_Spaces.Checked += ModeRadio_Checked;
             radioButton_Rooms.Checked += ModeRadio_Checked;
             radioButton_LinkRoomsNone.Checked += LinkUsageRadio_Checked;
@@ -91,6 +101,25 @@ namespace CardinalDirectionGlazing
 
             ApplyModeToUi();
             _uiReady = true;
+        }
+
+        private void RestoreWindowAreaParameterSelection()
+        {
+            if (CardinalDirectionGlazingSettingsItem?.UseWindowAreaParameter != true)
+                return;
+
+            checkBox_WindowAreaFromParameter.IsChecked = true;
+            if (!Enum.TryParse(
+                CardinalDirectionGlazingSettingsItem.WindowAreaParameterScope,
+                out WindowAreaParameterScope scope))
+                return;
+
+            comboBox_WindowAreaParameter.SelectedItem = _windowAreaParameters.FirstOrDefault(item =>
+                item.Scope == scope
+                && string.Equals(
+                    item.Name,
+                    CardinalDirectionGlazingSettingsItem.WindowAreaParameterName,
+                    StringComparison.Ordinal));
         }
 
         /// <summary>Старые настройки: помещения + сохранённое имя связи без флага — считаем, что связь использовалась.</summary>
@@ -161,6 +190,17 @@ namespace CardinalDirectionGlazing
 
         private bool TryConfirm()
         {
+            if (checkBox_WindowAreaFromParameter.IsChecked == true
+                && comboBox_WindowAreaParameter.SelectedItem == null)
+            {
+                MessageBox.Show(
+                    "Выберите параметр площади окон.",
+                    "Остекление по сторонам",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return false;
+            }
+
             bool spaces = radioButton_Spaces.IsChecked == true;
             bool hasLinks = _revitLinkInstances.Count > 0;
 
@@ -260,6 +300,10 @@ namespace CardinalDirectionGlazing
         {
             bool spaces = radioButton_Spaces.IsChecked == true;
             bool roomsUseLink = !spaces && radioButton_LinkRoomsUse.IsChecked == true;
+            UseWindowAreaParameter = checkBox_WindowAreaFromParameter.IsChecked == true;
+            SelectedWindowAreaParameter = UseWindowAreaParameter
+                ? comboBox_WindowAreaParameter.SelectedItem as WindowAreaParameterOption
+                : null;
 
             SelectedRevitLinkInstance = spaces || roomsUseLink
                 ? listBox_RevitLinkInstance.SelectedItem as RevitLinkInstance
@@ -268,7 +312,11 @@ namespace CardinalDirectionGlazing
             CardinalDirectionGlazingSettingsItem = new CardinalDirectionGlazingSettings
             {
                 SelectedRevitLinkInstanceName = SelectedRevitLinkInstance?.Name ?? string.Empty,
-                UseLinkedFileForRooms = !spaces && roomsUseLink
+                UseLinkedFileForRooms = !spaces && roomsUseLink,
+                UseWindowAreaParameter = UseWindowAreaParameter,
+                WindowAreaParameterName = SelectedWindowAreaParameter?.Name ?? string.Empty,
+                WindowAreaParameterScope = SelectedWindowAreaParameter?.Scope.ToString() ?? string.Empty,
+                WindowAreaParameterGuid = SelectedWindowAreaParameter?.SharedGuid ?? string.Empty
             };
 
             SpacesForProcessingButtonName = radioButton_Selected.IsChecked == true
