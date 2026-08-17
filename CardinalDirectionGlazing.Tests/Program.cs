@@ -25,6 +25,8 @@ internal static class Program
         AssertRootCollectionDiagnosticsSerializeOnce();
         AssertDesktopTracePathUsesStableTimestamp();
         AssertTraceWriteDoesNotOverwriteExistingFile();
+        AssertWindowAreaResolution();
+        AssertWindowAreaUsageSummaryDeduplicatesWindows();
 
         if (CardinalDirectionClassifier.TryClassify(0, 0, 1, 0, 0, 1, out _))
         {
@@ -140,6 +142,47 @@ internal static class Program
             {
                 System.IO.Directory.Delete(directory, true);
             }
+        }
+    }
+
+    private static void AssertWindowAreaResolution()
+    {
+        AssertAreaResult(false, 10.8, 12.5, 12.5, WindowAreaValueSource.Dimensions, string.Empty);
+        AssertAreaResult(true, 10.8, 12.5, 10.8, WindowAreaValueSource.Parameter, string.Empty);
+        AssertAreaResult(true, null, 12.5, 12.5, WindowAreaValueSource.DimensionsFallback, "MissingParameter");
+        AssertAreaResult(true, 0.0, 12.5, 12.5, WindowAreaValueSource.DimensionsFallback, "NonPositiveParameter");
+        AssertAreaResult(true, -1.0, 12.5, 12.5, WindowAreaValueSource.DimensionsFallback, "NonPositiveParameter");
+        AssertAreaResult(true, double.NaN, 12.5, 12.5, WindowAreaValueSource.DimensionsFallback, "NonFiniteParameter");
+    }
+
+    private static void AssertAreaResult(
+        bool useParameter,
+        double? parameterArea,
+        double dimensionsArea,
+        double expectedArea,
+        WindowAreaValueSource expectedSource,
+        string expectedReason)
+    {
+        WindowAreaResult result = WindowAreaCalculator.Resolve(useParameter, parameterArea, dimensionsArea);
+        if (Math.Abs(result.Area - expectedArea) > 1e-9
+            || result.Source != expectedSource
+            || !string.Equals(result.FallbackReason, expectedReason, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Unexpected area result: area={result.Area}, source={result.Source}, reason={result.FallbackReason}.");
+        }
+    }
+
+    private static void AssertWindowAreaUsageSummaryDeduplicatesWindows()
+    {
+        var summary = new WindowAreaUsageSummary();
+        summary.Register("CurrentWindows|window-1", WindowAreaValueSource.Parameter);
+        summary.Register("CurrentWindows|window-1", WindowAreaValueSource.Parameter);
+        summary.Register("LinkedWindows|window-2", WindowAreaValueSource.DimensionsFallback);
+
+        if (summary.ParameterCount != 1 || summary.DimensionsFallbackCount != 1)
+        {
+            throw new InvalidOperationException("Window area usage summary must count each source window once.");
         }
     }
 
