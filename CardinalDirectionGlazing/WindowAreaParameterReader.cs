@@ -1,5 +1,7 @@
 using Autodesk.Revit.DB;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace CardinalDirectionGlazing
 {
@@ -23,25 +25,44 @@ namespace CardinalDirectionGlazing
                 return false;
             }
 
-            Parameter? parameter = null;
+            Parameter? exactParameter = null;
             if (Guid.TryParse(option.SharedGuid, out Guid guid))
-                parameter = source.get_Parameter(guid);
-            if (parameter == null)
-                parameter = source.LookupParameter(option.Name);
-            if (parameter == null)
-            {
-                reason = "MissingParameter";
-                return false;
-            }
+                exactParameter = source.get_Parameter(guid);
 
-            if (parameter.StorageType != StorageType.Double)
-            {
-                reason = "InvalidStorageType";
-                return false;
-            }
+            WindowAreaParameterValueCandidate? exactCandidate = exactParameter == null
+                ? null
+                : CreateCandidate(exactParameter);
+            IEnumerable<WindowAreaParameterValueCandidate> nameCandidates =
+                source.GetParameters(option.Name).Select(CreateCandidate);
 
-            value = parameter.AsDouble();
-            return true;
+            return WindowAreaParameterValueSelector.TrySelect(
+                option,
+                exactCandidate,
+                nameCandidates,
+                out value,
+                out reason);
+        }
+
+        private static WindowAreaParameterValueCandidate CreateCandidate(Parameter parameter)
+        {
+            bool isDouble = parameter.StorageType == StorageType.Double;
+            return new WindowAreaParameterValueCandidate
+            {
+                IsArea = IsAreaDefinition(parameter.Definition),
+                IsDouble = isDouble,
+                Value = isDouble ? parameter.AsDouble() : 0
+            };
+        }
+
+        private static bool IsAreaDefinition(Definition? definition)
+        {
+            if (definition == null)
+                return false;
+#if REVIT_2019 || REVIT_2020 || REVIT_2021
+            return definition.ParameterType == ParameterType.Area;
+#else
+            return definition.GetDataType() == SpecTypeId.Area;
+#endif
         }
     }
 }

@@ -32,6 +32,10 @@ internal static class Program
         AssertWindowAreaSettingsRoundTrip();
         AssertWindowAreaParameterControlsExist();
         AssertWindowAreaParameterIsIntegrated();
+        AssertWindowAreaParameterRestorationUsesGuid();
+        AssertWindowAreaParameterValueSelectionRejectsWrongDataTypes();
+        AssertRevitWindowAreaAdaptersUseValidatedSelection();
+        AssertWindowAreaCatalogCombinesCurrentAndLinkedObservations();
 
         if (CardinalDirectionClassifier.TryClassify(0, 0, 1, 0, 0, 1, out _))
         {
@@ -264,6 +268,181 @@ internal static class Program
         {
             if (!source.Contains(marker))
                 throw new InvalidOperationException($"Window area integration marker is missing: {marker}");
+        }
+    }
+
+    private static void AssertWindowAreaParameterRestorationUsesGuid()
+    {
+        var first = new WindowAreaParameterOption
+        {
+            Name = "В_Площадь остекления",
+            Scope = WindowAreaParameterScope.Instance,
+            SharedGuid = "11111111-1111-1111-1111-111111111111"
+        };
+        var second = new WindowAreaParameterOption
+        {
+            Name = "В_Площадь остекления",
+            Scope = WindowAreaParameterScope.Instance,
+            SharedGuid = "22222222-2222-2222-2222-222222222222"
+        };
+
+        WindowAreaParameterOption? exact = WindowAreaParameterSelection.Restore(
+            new[] { first, second },
+            second.Name,
+            second.Scope.ToString(),
+            second.SharedGuid);
+        if (!ReferenceEquals(exact, second))
+            throw new InvalidOperationException("Saved shared GUID must win over a duplicate parameter name.");
+
+        const string unavailableGuid = "33333333-3333-3333-3333-333333333333";
+        WindowAreaParameterOption? crossDocument = WindowAreaParameterSelection.Restore(
+            new[] { first },
+            first.Name,
+            first.Scope.ToString(),
+            unavailableGuid);
+        if (crossDocument == null
+            || crossDocument.Name != first.Name
+            || crossDocument.Scope != first.Scope
+            || crossDocument.SharedGuid != unavailableGuid)
+        {
+            throw new InvalidOperationException("Name fallback must retain the saved GUID for exact runtime lookup.");
+        }
+    }
+
+    private static void AssertWindowAreaParameterValueSelectionRejectsWrongDataTypes()
+    {
+        var option = new WindowAreaParameterOption
+        {
+            Name = "В_Площадь остекления",
+            Scope = WindowAreaParameterScope.Type,
+            SharedGuid = "22222222-2222-2222-2222-222222222222"
+        };
+        var exact = new WindowAreaParameterValueCandidate
+        {
+            IsArea = true,
+            IsDouble = true,
+            Value = 10.8
+        };
+        var namedArea = new WindowAreaParameterValueCandidate
+        {
+            IsArea = true,
+            IsDouble = true,
+            Value = 9.4
+        };
+        var namedLength = new WindowAreaParameterValueCandidate
+        {
+            IsArea = false,
+            IsDouble = true,
+            Value = 25.0
+        };
+
+        if (!WindowAreaParameterValueSelector.TrySelect(
+                option,
+                exact,
+                new[] { namedArea },
+                out double exactValue,
+                out string exactReason)
+            || Math.Abs(exactValue - 10.8) > 1e-9
+            || exactReason.Length != 0)
+        {
+            throw new InvalidOperationException("A valid GUID match must be used before name fallback.");
+        }
+
+        if (!WindowAreaParameterValueSelector.TrySelect(
+                option,
+                null,
+                new[] { namedLength, namedArea },
+                out double fallbackValue,
+                out string fallbackReason)
+            || Math.Abs(fallbackValue - 9.4) > 1e-9
+            || fallbackReason.Length != 0)
+        {
+            throw new InvalidOperationException("Name fallback must select the area candidate among duplicate names.");
+        }
+
+        if (WindowAreaParameterValueSelector.TrySelect(
+                option,
+                null,
+                new[] { namedLength },
+                out _,
+                out string invalidReason)
+            || invalidReason != "InvalidDataType")
+        {
+            throw new InvalidOperationException("A same-named non-area Double must be rejected.");
+        }
+    }
+
+    private static void AssertRevitWindowAreaAdaptersUseValidatedSelection()
+    {
+        string readerPath = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing", "WindowAreaParameterReader.cs");
+        string reader = File.ReadAllText(readerPath);
+        if (!reader.Contains("source.GetParameters(option.Name)")
+            || !reader.Contains("WindowAreaParameterValueSelector.TrySelect"))
+        {
+            throw new InvalidOperationException("The Revit reader must validate all same-named candidates through the tested selector.");
+        }
+
+        string windowPath = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing", "CardinalDirectionGlazingWPF.xaml.cs");
+        string window = File.ReadAllText(windowPath);
+        if (!window.Contains("WindowAreaParameterSelection.Restore"))
+            throw new InvalidOperationException("WPF settings restoration must use the tested GUID-first selector.");
+
+        string catalogPath = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing", "WindowAreaParameterCatalog.cs");
+        string catalog = File.ReadAllText(catalogPath);
+        if (!catalog.Contains("WindowAreaParameterCatalogBuilder.Build"))
+            throw new InvalidOperationException("The Revit catalog must delegate current and linked observations to the tested builder.");
+    }
+
+    private static void AssertWindowAreaCatalogCombinesCurrentAndLinkedObservations()
+    {
+        var observations = new[]
+        {
+            new WindowAreaParameterObservation
+            {
+                DocumentKey = "Current",
+                Name = "В_Площадь остекления",
+                Scope = WindowAreaParameterScope.Instance,
+                IsArea = false,
+                IsDouble = true
+            },
+            new WindowAreaParameterObservation
+            {
+                DocumentKey = "Current",
+                Name = "В_Площадь остекления",
+                Scope = WindowAreaParameterScope.Type,
+                SharedGuid = "11111111-1111-1111-1111-111111111111",
+                IsArea = true,
+                IsDouble = true
+            },
+            new WindowAreaParameterObservation
+            {
+                DocumentKey = "Linked",
+                Name = "В_Площадь остекления",
+                Scope = WindowAreaParameterScope.Instance,
+                SharedGuid = "22222222-2222-2222-2222-222222222222",
+                IsArea = true,
+                IsDouble = true
+            },
+            new WindowAreaParameterObservation
+            {
+                DocumentKey = "Linked",
+                Name = "В_Площадь остекления",
+                Scope = WindowAreaParameterScope.Instance,
+                SharedGuid = "22222222-2222-2222-2222-222222222222",
+                IsArea = true,
+                IsDouble = true
+            }
+        };
+
+        IReadOnlyList<WindowAreaParameterOption> options =
+            WindowAreaParameterCatalogBuilder.Build(observations);
+        WindowAreaParameterOption? instance = options.FirstOrDefault(item => item.Scope == WindowAreaParameterScope.Instance);
+        WindowAreaParameterOption? type = options.FirstOrDefault(item => item.Scope == WindowAreaParameterScope.Type);
+        if (options.Count != 2
+            || instance?.SharedGuid != "22222222-2222-2222-2222-222222222222"
+            || type?.SharedGuid != "11111111-1111-1111-1111-111111111111")
+        {
+            throw new InvalidOperationException("The catalog must merge valid area parameters from current and linked documents by scope.");
         }
     }
 

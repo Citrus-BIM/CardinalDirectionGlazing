@@ -109,17 +109,11 @@ namespace CardinalDirectionGlazing
                 return;
 
             checkBox_WindowAreaFromParameter.IsChecked = true;
-            if (!Enum.TryParse(
+            comboBox_WindowAreaParameter.SelectedItem = WindowAreaParameterSelection.Restore(
+                _windowAreaParameters,
+                CardinalDirectionGlazingSettingsItem.WindowAreaParameterName,
                 CardinalDirectionGlazingSettingsItem.WindowAreaParameterScope,
-                out WindowAreaParameterScope scope))
-                return;
-
-            comboBox_WindowAreaParameter.SelectedItem = _windowAreaParameters.FirstOrDefault(item =>
-                item.Scope == scope
-                && string.Equals(
-                    item.Name,
-                    CardinalDirectionGlazingSettingsItem.WindowAreaParameterName,
-                    StringComparison.Ordinal));
+                CardinalDirectionGlazingSettingsItem.WindowAreaParameterGuid);
         }
 
         /// <summary>Старые настройки: помещения + сохранённое имя связи без флага — считаем, что связь использовалась.</summary>

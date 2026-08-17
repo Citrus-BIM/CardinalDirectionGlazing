@@ -19,7 +19,7 @@ namespace CardinalDirectionGlazing
                     documents.Add(linked);
             }
 
-            var options = new Dictionary<string, WindowAreaParameterOption>(StringComparer.OrdinalIgnoreCase);
+            var observations = new List<WindowAreaParameterObservation>();
             foreach (Document document in documents)
             {
                 IEnumerable<FamilyInstance> windows = new FilteredElementCollector(document)
@@ -30,54 +30,48 @@ namespace CardinalDirectionGlazing
 
                 foreach (FamilyInstance window in windows)
                 {
-                    AddParameters(window, WindowAreaParameterScope.Instance, options);
+                    AddParameters(document.Title, window, WindowAreaParameterScope.Instance, observations);
                     if (window.Symbol != null)
-                        AddParameters(window.Symbol, WindowAreaParameterScope.Type, options);
+                        AddParameters(document.Title, window.Symbol, WindowAreaParameterScope.Type, observations);
                 }
             }
 
-            return options.Values
-                .OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
-                .ThenBy(item => item.Scope)
-                .ToList();
+            return WindowAreaParameterCatalogBuilder.Build(observations);
         }
 
         private static void AddParameters(
+            string documentKey,
             Element element,
             WindowAreaParameterScope scope,
-            IDictionary<string, WindowAreaParameterOption> options)
+            ICollection<WindowAreaParameterObservation> observations)
         {
             foreach (Parameter parameter in element.Parameters)
             {
                 Definition? definition = parameter?.Definition;
-                if (parameter == null
-                    || parameter.StorageType != StorageType.Double
-                    || definition == null
-                    || string.IsNullOrWhiteSpace(definition.Name)
-                    || !IsAreaDefinition(definition))
+                if (parameter == null || definition == null)
                     continue;
 
-                string key = scope + "|" + definition.Name;
-                if (!options.TryGetValue(key, out WindowAreaParameterOption? option))
-                {
-                    option = new WindowAreaParameterOption
-                    {
-                        Name = definition.Name,
-                        Scope = scope
-                    };
-                    options.Add(key, option);
-                }
-
-                if (option.SharedGuid.Length == 0 && parameter.IsShared)
+                string sharedGuid = string.Empty;
+                if (parameter.IsShared)
                 {
                     try
                     {
-                        option.SharedGuid = parameter.GUID.ToString("D");
+                        sharedGuid = parameter.GUID.ToString("D");
                     }
                     catch (InvalidOperationException)
                     {
                     }
                 }
+
+                observations.Add(new WindowAreaParameterObservation
+                {
+                    DocumentKey = documentKey,
+                    Name = definition.Name,
+                    Scope = scope,
+                    SharedGuid = sharedGuid,
+                    IsArea = IsAreaDefinition(definition),
+                    IsDouble = parameter.StorageType == StorageType.Double
+                });
             }
         }
 

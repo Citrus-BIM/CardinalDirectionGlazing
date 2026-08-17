@@ -13,5 +13,8 @@
     <Compile Include="..\CardinalDirectionGlazing\CalculationTrace.cs" Link="CalculationTrace.cs" />
     <Compile Include="..\CardinalDirectionGlazing\CardinalDirectionGlazingSettings.cs" Link="CardinalDirectionGlazingSettings.cs" />
     <Compile Include="..\CardinalDirectionGlazing\WindowAreaCalculation.cs" Link="WindowAreaCalculation.cs" />
+    <Compile Include="..\CardinalDirectionGlazing\WindowAreaParameterCatalogBuilder.cs" Link="WindowAreaParameterCatalogBuilder.cs" />
+    <Compile Include="..\CardinalDirectionGlazing\WindowAreaParameterOption.cs" Link="WindowAreaParameterOption.cs" />
+    <Compile Include="..\CardinalDirectionGlazing\WindowAreaParameterSelection.cs" Link="WindowAreaParameterSelection.cs" />
   </ItemGroup>
 </Project>
