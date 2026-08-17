@@ -12,6 +12,11 @@ namespace CardinalDirectionGlazing
         /// <summary>Для режима «Помещения»: учитывать ли окна и остекление из связанного файла.</summary>
         public bool UseLinkedFileForRooms { get; set; }
 
+        public bool UseWindowAreaParameter { get; set; }
+        public string WindowAreaParameterName { get; set; } = string.Empty;
+        public string WindowAreaParameterScope { get; set; } = string.Empty;
+        public string WindowAreaParameterGuid { get; set; } = string.Empty;
+
         public static CardinalDirectionGlazingSettings? GetSettings()
         {
             CardinalDirectionGlazingSettings? cardinalDirectionGlazingSettings = null;

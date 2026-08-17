@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Text;
+using System.Xml.Serialization;
 
 namespace CardinalDirectionGlazing.Tests;
 
@@ -27,6 +29,7 @@ internal static class Program
         AssertTraceWriteDoesNotOverwriteExistingFile();
         AssertWindowAreaResolution();
         AssertWindowAreaUsageSummaryDeduplicatesWindows();
+        AssertWindowAreaSettingsRoundTrip();
 
         if (CardinalDirectionClassifier.TryClassify(0, 0, 1, 0, 0, 1, out _))
         {
@@ -183,6 +186,44 @@ internal static class Program
         if (summary.ParameterCount != 1 || summary.DimensionsFallbackCount != 1)
         {
             throw new InvalidOperationException("Window area usage summary must count each source window once.");
+        }
+    }
+
+    private static void AssertWindowAreaSettingsRoundTrip()
+    {
+        const string oldXml = "<CardinalDirectionGlazingSettings><SpacesForProcessingButtonName>radioButton_All</SpacesForProcessingButtonName></CardinalDirectionGlazingSettings>";
+        var serializer = new XmlSerializer(typeof(CardinalDirectionGlazingSettings));
+        CardinalDirectionGlazingSettings oldSettings;
+        using (var reader = new StringReader(oldXml))
+            oldSettings = (CardinalDirectionGlazingSettings)serializer.Deserialize(reader)!;
+
+        if (oldSettings.UseWindowAreaParameter || oldSettings.WindowAreaParameterName.Length != 0)
+            throw new InvalidOperationException("Legacy settings must keep dimension-based window areas.");
+
+        var expected = new CardinalDirectionGlazingSettings
+        {
+            UseWindowAreaParameter = true,
+            WindowAreaParameterName = "В_Площадь остекления",
+            WindowAreaParameterScope = "Instance",
+            WindowAreaParameterGuid = "820af414-f6ec-472d-887c-a2046a0c5988"
+        };
+        string xml;
+        using (var writer = new StringWriter())
+        {
+            serializer.Serialize(writer, expected);
+            xml = writer.ToString();
+        }
+
+        CardinalDirectionGlazingSettings actual;
+        using (var reader = new StringReader(xml))
+            actual = (CardinalDirectionGlazingSettings)serializer.Deserialize(reader)!;
+
+        if (!actual.UseWindowAreaParameter
+            || actual.WindowAreaParameterName != expected.WindowAreaParameterName
+            || actual.WindowAreaParameterScope != expected.WindowAreaParameterScope
+            || actual.WindowAreaParameterGuid != expected.WindowAreaParameterGuid)
+        {
+            throw new InvalidOperationException("Window area parameter settings did not round-trip.");
         }
     }
 
