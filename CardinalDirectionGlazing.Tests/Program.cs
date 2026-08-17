@@ -31,6 +31,7 @@ internal static class Program
         AssertWindowAreaUsageSummaryDeduplicatesWindows();
         AssertWindowAreaSettingsRoundTrip();
         AssertWindowAreaParameterControlsExist();
+        AssertWindowAreaParameterIsIntegrated();
 
         if (CardinalDirectionClassifier.TryClassify(0, 0, 1, 0, 0, 1, out _))
         {
@@ -244,6 +245,25 @@ internal static class Program
         {
             if (!xaml.Contains(marker))
                 throw new InvalidOperationException($"Window area UI marker is missing: {marker}");
+        }
+    }
+
+    private static void AssertWindowAreaParameterIsIntegrated()
+    {
+        string path = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing", "CardinalDirectionGlazingCommand.cs");
+        string source = File.ReadAllText(path);
+        string[] required =
+        {
+            "WindowAreaParameterReader.TryRead",
+            "WindowAreaCalculator.Resolve",
+            "windowAreaUsageSummary.Register",
+            "Площадь окон из параметра"
+        };
+
+        foreach (string marker in required)
+        {
+            if (!source.Contains(marker))
+                throw new InvalidOperationException($"Window area integration marker is missing: {marker}");
         }
     }
 

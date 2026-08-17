@@ -68,6 +68,12 @@ namespace CardinalDirectionGlazing
                 return Result.Cancelled;
             }
 
+            WindowAreaParameterOption? selectedWindowAreaParameter =
+                cardinalDirectionGlazingWPF.UseWindowAreaParameter
+                    ? cardinalDirectionGlazingWPF.SelectedWindowAreaParameter
+                    : null;
+            var windowAreaUsageSummary = new WindowAreaUsageSummary();
+
             trace.Mode = cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Spaces"
                 ? "Spaces"
                 : "Rooms";
@@ -432,6 +438,8 @@ namespace CardinalDirectionGlazing
                         doc,
                         targetTrace,
                         "CurrentWindows",
+                        selectedWindowAreaParameter,
+                        windowAreaUsageSummary,
                         trueNorthBasisX,
                         trueNorthBasisY,
                         ref windowsAreaNorth,
@@ -489,6 +497,8 @@ namespace CardinalDirectionGlazing
                         doc,
                         targetTrace,
                         "LinkedWindows",
+                        selectedWindowAreaParameter,
+                        windowAreaUsageSummary,
                         trueNorthBasisX,
                         trueNorthBasisY,
                         ref windowsAreaNorth,
@@ -554,6 +564,14 @@ namespace CardinalDirectionGlazing
                 }
 
                 t.Commit();
+            }
+
+            if (selectedWindowAreaParameter != null)
+            {
+                TaskDialog.Show(
+                    "Остекление по сторонам",
+                    "Площадь окон из параметра: " + windowAreaUsageSummary.ParameterCount + Environment.NewLine
+                    + "Площадь окон по высоте × ширине: " + windowAreaUsageSummary.DimensionsFallbackCount);
             }
 
             CompleteRunTrace(trace, "Succeeded", "Completed");
@@ -756,30 +774,58 @@ namespace CardinalDirectionGlazing
             return null;
         }
 
-        private double GetWindowArea(FamilyInstance window, SourceTrace trace = null)
+        private WindowAreaResult GetWindowArea(
+            FamilyInstance window,
+            WindowAreaParameterOption? selectedOption,
+            SourceTrace trace = null)
         {
             TraceStep step = trace?.StartStep("Area");
-            if (window?.Symbol == null)
-            {
-                step?.Details.Add("symbol", "null");
-                return 0.0;
-            }
-
-            double roughHeight = window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM)?.AsDouble() ?? 0.0;
-            double roughWidth = window.Symbol.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM)?.AsDouble() ?? 0.0;
-            double caseworkHeight = window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_HEIGHT)?.AsDouble() ?? 0.0;
-            double caseworkWidth = window.Symbol.get_Parameter(BuiltInParameter.CASEWORK_WIDTH)?.AsDouble() ?? 0.0;
+            FamilySymbol? symbol = window.Symbol;
+            double roughHeight = symbol?.get_Parameter(BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM)?.AsDouble() ?? 0.0;
+            double roughWidth = symbol?.get_Parameter(BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM)?.AsDouble() ?? 0.0;
+            double caseworkHeight = symbol?.get_Parameter(BuiltInParameter.CASEWORK_HEIGHT)?.AsDouble() ?? 0.0;
+            double caseworkWidth = symbol?.get_Parameter(BuiltInParameter.CASEWORK_WIDTH)?.AsDouble() ?? 0.0;
             double selectedHeight = Math.Max(roughHeight, caseworkHeight);
             double selectedWidth = Math.Max(roughWidth, caseworkWidth);
-            double area = selectedHeight * selectedWidth;
+            double dimensionsArea = selectedHeight * selectedWidth;
+
+            double? parameterValue = null;
+            string readReason = string.Empty;
+            if (selectedOption != null
+                && WindowAreaParameterReader.TryRead(window, selectedOption, out double readValue, out readReason))
+            {
+                parameterValue = readValue;
+            }
+
+            WindowAreaResult result = WindowAreaCalculator.Resolve(
+                selectedOption != null,
+                parameterValue,
+                dimensionsArea);
+            if (result.Source == WindowAreaValueSource.DimensionsFallback
+                && !string.IsNullOrEmpty(readReason))
+            {
+                result.FallbackReason = readReason;
+            }
+
             AddTraceDetail(step, "roughHeight", roughHeight);
             AddTraceDetail(step, "roughWidth", roughWidth);
             AddTraceDetail(step, "caseworkHeight", caseworkHeight);
             AddTraceDetail(step, "caseworkWidth", caseworkWidth);
             AddTraceDetail(step, "selectedHeight", selectedHeight);
             AddTraceDetail(step, "selectedWidth", selectedWidth);
-            AddTraceDetail(step, "area", area);
-            return area;
+            AddTraceDetail(step, "dimensionsArea", dimensionsArea);
+            AddTraceDetail(step, "parameterName", selectedOption?.Name ?? string.Empty);
+            AddTraceDetail(step, "parameterScope", selectedOption?.Scope.ToString() ?? string.Empty);
+            AddTraceDetail(
+                step,
+                "parameterValue",
+                parameterValue.HasValue
+                    ? parameterValue.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : string.Empty);
+            AddTraceDetail(step, "areaSource", result.Source);
+            AddTraceDetail(step, "fallbackReason", result.FallbackReason);
+            AddTraceDetail(step, "area", result.Area);
+            return result;
         }
 
         private void ProcessWindows(
@@ -790,6 +836,8 @@ namespace CardinalDirectionGlazing
             Document hostDocument,
             TargetTrace targetTrace,
             string sourcePass,
+            WindowAreaParameterOption? selectedWindowAreaParameter,
+            WindowAreaUsageSummary windowAreaUsageSummary,
             XYZ trueNorthBasisX,
             XYZ trueNorthBasisY,
             ref double windowsAreaNorth,
@@ -820,8 +868,8 @@ namespace CardinalDirectionGlazing
                     sourceTrace.SuperComponent = window.SuperComponent?.UniqueId;
                 }
 
-                double windowArea = GetWindowArea(window, sourceTrace);
-                if (windowArea <= 0)
+                WindowAreaResult areaResult = GetWindowArea(window, selectedWindowAreaParameter, sourceTrace);
+                if (areaResult.Area <= 0)
                 {
                     sourceTrace?.Complete("Skipped", "NoArea");
                     continue;
@@ -833,7 +881,7 @@ namespace CardinalDirectionGlazing
                     continue;
                 }
 
-                UpdateWindowAreas(
+                bool areaCounted = UpdateWindowAreas(
                     ref windowsAreaNorth,
                     ref windowsAreaSouth,
                     ref windowsAreaWest,
@@ -842,11 +890,18 @@ namespace CardinalDirectionGlazing
                     ref windowsAreaNortheast,
                     ref windowsAreaSouthwest,
                     ref windowsAreaSoutheast,
-                    windowArea,
+                    areaResult.Area,
                     exteriorDirection,
                     trueNorthBasisX,
                     trueNorthBasisY,
                     sourceTrace);
+
+                if (areaCounted)
+                {
+                    windowAreaUsageSummary.Register(
+                        sourcePass + "|" + window.UniqueId,
+                        areaResult.Source);
+                }
 
                 sourceTrace?.Complete(sourceTrace?.Direction?.Accepted == true ? "Counted" : "Skipped", sourceTrace?.Direction?.Accepted == true ? sourceTrace.ReasonCode ?? "SpatialProbe" : "InvalidDirection");
             }
@@ -2007,7 +2062,7 @@ namespace CardinalDirectionGlazing
             return true;
         }
 
-        private void UpdateWindowAreas(
+        private bool UpdateWindowAreas(
             ref double north, ref double south, ref double west, ref double east,
             ref double northwest, ref double northeast, ref double southwest, ref double southeast,
             double area, XYZ orientation, XYZ trueNorthBasisX, XYZ trueNorthBasisY, SourceTrace sourceTrace = null)
@@ -2033,7 +2088,7 @@ namespace CardinalDirectionGlazing
                     directionTrace.Accepted = false;
                     sourceTrace.Direction = directionTrace;
                 }
-                return;
+                return false;
             }
 
             double before;
@@ -2082,7 +2137,7 @@ namespace CardinalDirectionGlazing
                     after = southeast;
                     break;
                 default:
-                    return;
+                    return false;
             }
 
             if (directionTrace != null)
@@ -2093,6 +2148,8 @@ namespace CardinalDirectionGlazing
                 directionTrace.BucketValueAfter = after;
                 sourceTrace.Direction = directionTrace;
             }
+
+            return true;
         }
 
         private static List<Space> GetSpacesFromCurrentSelection(Document doc, Selection sel)
