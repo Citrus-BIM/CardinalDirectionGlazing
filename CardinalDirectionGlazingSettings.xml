@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <CardinalDirectionGlazingSettings xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <SelectedRevitLinkInstanceName>БазаТест_АР_2023.rvt : 4 : позиция &lt;Не общедоступное&gt;</SelectedRevitLinkInstanceName>
+  <SelectedRevitLinkInstanceName>БазаТест_ОВ_2023.rvt : 10 : позиция Встроенный</SelectedRevitLinkInstanceName>
   <SpacesForProcessingButtonName>radioButton_All</SpacesForProcessingButtonName>
   <SpacesOrRoomsForProcessingButtonName>radioButton_Spaces</SpacesOrRoomsForProcessingButtonName>
   <UseLinkedFileForRooms>false</UseLinkedFileForRooms>
