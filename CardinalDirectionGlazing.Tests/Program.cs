@@ -300,12 +300,10 @@ internal static class Program
             first.Name,
             first.Scope.ToString(),
             unavailableGuid);
-        if (crossDocument == null
-            || crossDocument.Name != first.Name
-            || crossDocument.Scope != first.Scope
-            || crossDocument.SharedGuid != unavailableGuid)
+        if (!ReferenceEquals(crossDocument, first)
+            || first.SharedGuid != unavailableGuid)
         {
-            throw new InvalidOperationException("Name fallback must retain the saved GUID for exact runtime lookup.");
+            throw new InvalidOperationException("Name fallback must select the ComboBox source item and retain the saved GUID.");
         }
     }
 

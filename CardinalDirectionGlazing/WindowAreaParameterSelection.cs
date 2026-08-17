@@ -30,12 +30,8 @@ namespace CardinalDirectionGlazing
             if (byName == null || string.IsNullOrWhiteSpace(savedGuid))
                 return byName;
 
-            return new WindowAreaParameterOption
-            {
-                Name = byName.Name,
-                Scope = byName.Scope,
-                SharedGuid = savedGuid
-            };
+            byName.SharedGuid = savedGuid;
+            return byName;
         }
     }
 
