@@ -57,10 +57,12 @@ namespace CardinalDirectionGlazing
 
             IReadOnlyList<WindowAreaParameterOption> windowAreaParameters =
                 WindowAreaParameterCatalog.Collect(doc, revitLinkInstanceList);
+            IReadOnlyList<CurtainPanelAreaParameterOption> curtainPanelAreaParameters =
+                CurtainPanelAreaParameterCatalog.Collect(doc, revitLinkInstanceList);
 
             // Открываем окно WPF для выбора опций
             CardinalDirectionGlazingWPF cardinalDirectionGlazingWPF =
-                new CardinalDirectionGlazingWPF(revitLinkInstanceList, windowAreaParameters);
+                new CardinalDirectionGlazingWPF(revitLinkInstanceList, windowAreaParameters, curtainPanelAreaParameters);
             cardinalDirectionGlazingWPF.ShowDialog();
             if (cardinalDirectionGlazingWPF.DialogResult != true)
             {
@@ -73,6 +75,11 @@ namespace CardinalDirectionGlazing
                     ? cardinalDirectionGlazingWPF.SelectedWindowAreaParameter
                     : null;
             var windowAreaUsageSummary = new WindowAreaUsageSummary();
+            CurtainPanelAreaParameterOption? selectedCurtainPanelAreaParameter =
+                cardinalDirectionGlazingWPF.UseCurtainPanelAreaParameter
+                    ? cardinalDirectionGlazingWPF.SelectedCurtainPanelAreaParameter
+                    : null;
+            var curtainPanelAreaUsageSummary = new CurtainPanelAreaUsageSummary();
 
             trace.Mode = cardinalDirectionGlazingWPF.SpacesOrRoomsForProcessingButtonName == "radioButton_Spaces"
                 ? "Spaces"
@@ -460,6 +467,8 @@ namespace CardinalDirectionGlazing
                         elementSolid,
                         targetTrace,
                         "CurrentCurtainWalls",
+                        selectedCurtainPanelAreaParameter,
+                        curtainPanelAreaUsageSummary,
                         trueNorthBasisX,
                         trueNorthBasisY,
                         ref windowsAreaNorth,
@@ -519,6 +528,8 @@ namespace CardinalDirectionGlazing
                         elementSolid,
                         targetTrace,
                         "LinkedCurtainWalls",
+                        selectedCurtainPanelAreaParameter,
+                        curtainPanelAreaUsageSummary,
                         trueNorthBasisX,
                         trueNorthBasisY,
                         ref windowsAreaNorth,
@@ -566,13 +577,25 @@ namespace CardinalDirectionGlazing
                 t.Commit();
             }
 
+            var areaSummaryLines = new List<string>();
             if (selectedWindowAreaParameter != null)
             {
-                TaskDialog.Show(
-                    "Остекление по сторонам",
-                    "Площадь окон из параметра: " + windowAreaUsageSummary.ParameterCount + Environment.NewLine
-                    + "Площадь окон по высоте × ширине: " + windowAreaUsageSummary.DimensionsFallbackCount);
+                areaSummaryLines.Add("Площадь окон из параметра: " + windowAreaUsageSummary.ParameterCount);
+                areaSummaryLines.Add("Площадь окон по высоте × ширине: " + windowAreaUsageSummary.DimensionsFallbackCount);
             }
+            if (selectedCurtainPanelAreaParameter != null)
+            {
+                if (areaSummaryLines.Count > 0)
+                    areaSummaryLines.Add(string.Empty);
+                areaSummaryLines.Add(
+                    "Площадь витражных панелей из параметра: "
+                    + curtainPanelAreaUsageSummary.ParameterCount);
+                areaSummaryLines.Add(
+                    "Площадь витражных панелей по HOST_AREA_COMPUTED: "
+                    + curtainPanelAreaUsageSummary.HostAreaFallbackCount);
+            }
+            if (areaSummaryLines.Count > 0)
+                TaskDialog.Show("Остекление по сторонам", string.Join(Environment.NewLine, areaSummaryLines));
 
             CompleteRunTrace(trace, "Succeeded", "Completed");
             return Result.Succeeded;
@@ -826,6 +849,74 @@ namespace CardinalDirectionGlazing
             AddTraceDetail(step, "fallbackReason", result.FallbackReason);
             AddTraceDetail(step, "area", result.Area);
             return result;
+        }
+
+        private CurtainPanelAreaResult GetCurtainPanelArea(
+            Panel panel,
+            double hostArea,
+            CurtainPanelAreaParameterOption? selectedOption,
+            SourceTrace trace = null)
+        {
+            TraceStep step = trace?.StartStep("Area");
+            double? parameterValue = null;
+            string readReason = string.Empty;
+            if (selectedOption != null
+                && CurtainPanelAreaParameterReader.TryRead(
+                    panel,
+                    selectedOption,
+                    out double readValue,
+                    out readReason))
+            {
+                parameterValue = readValue;
+            }
+
+            CurtainPanelAreaResult result = CurtainPanelAreaCalculator.Resolve(
+                selectedOption != null,
+                parameterValue,
+                hostArea);
+            if (result.Source == CurtainPanelAreaValueSource.HostAreaFallback
+                && !string.IsNullOrEmpty(readReason))
+            {
+                result.FallbackReason = readReason;
+            }
+
+            AddTraceDetail(step, "hostAreaComputedRaw", hostArea);
+            AddTraceDetail(step, "parameterName", selectedOption?.Name ?? string.Empty);
+            AddTraceDetail(step, "parameterScope", selectedOption?.Scope.ToString() ?? string.Empty);
+            AddTraceDetail(step, "parameterGuid", selectedOption?.SharedGuid ?? string.Empty);
+            AddTraceDetail(
+                step,
+                "parameterValue",
+                parameterValue.HasValue
+                    ? parameterValue.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : string.Empty);
+            AddTraceDetail(step, "areaSource", result.Source);
+            AddTraceDetail(step, "fallbackReason", result.FallbackReason);
+            AddTraceDetail(step, "hostAreaComputedFinal", result.Area);
+            AddTraceDetail(step, "area", result.Area);
+            return result;
+        }
+
+        private static string CreateCurtainPanelUsageKey(Panel panel)
+        {
+            if (panel == null)
+                return string.Empty;
+
+            try
+            {
+                Document document = panel.Document;
+                if (document == null || string.IsNullOrWhiteSpace(panel.UniqueId))
+                    return string.Empty;
+
+                return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(document)
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + "|"
+                    + panel.UniqueId;
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
         }
 
         private void ProcessWindows(
@@ -1700,6 +1791,8 @@ namespace CardinalDirectionGlazing
             Solid elementSolid,
             TargetTrace targetTrace,
             string sourcePass,
+            CurtainPanelAreaParameterOption? selectedCurtainPanelAreaParameter,
+            CurtainPanelAreaUsageSummary curtainPanelAreaUsageSummary,
             XYZ trueNorthBasisX,
             XYZ trueNorthBasisY,
             ref double windowsAreaNorth,
@@ -1779,10 +1872,26 @@ namespace CardinalDirectionGlazing
                     XYZ center = tr.OfPoint(centerLocal);
                     XYZ facing = tr.OfVector(facingLocal);
 
-                    double area = GetFillHostArea(fill);
-                    TraceStep areaStep = sourceTrace?.StartStep("Area");
-                    AddTraceDetail(areaStep, "hostAreaComputedRaw", area);
-                    AddTraceDetail(areaStep, "hostAreaComputedFinal", area);
+                    double hostArea = GetFillHostArea(fill);
+                    double area = hostArea;
+                    Panel curtainPanel = null;
+                    CurtainPanelAreaResult areaResult = null;
+                    if (fill is Panel panel)
+                    {
+                        curtainPanel = panel;
+                        areaResult = GetCurtainPanelArea(
+                            panel,
+                            hostArea,
+                            selectedCurtainPanelAreaParameter,
+                            sourceTrace);
+                        area = areaResult.Area;
+                    }
+                    else
+                    {
+                        TraceStep areaStep = sourceTrace?.StartStep("Area");
+                        AddTraceDetail(areaStep, "hostAreaComputedRaw", hostArea);
+                        AddTraceDetail(areaStep, "hostAreaComputedFinal", hostArea);
+                    }
                     if (area <= 0)
                     {
                         sourceTrace?.Complete("Skipped", "NoArea");
@@ -1798,10 +1907,16 @@ namespace CardinalDirectionGlazing
                     out XYZ exteriorDirection,
                         out bool isInteriorOpening))
                     {
-                        UpdateWindowAreas(
+                        bool areaCounted = UpdateWindowAreas(
                             ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
                             ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
                             area, exteriorDirection, trueNorthBasisX, trueNorthBasisY, sourceTrace);
+                        if (areaCounted && curtainPanel != null && areaResult != null)
+                        {
+                            curtainPanelAreaUsageSummary?.Register(
+                                CreateCurtainPanelUsageKey(curtainPanel),
+                                areaResult.Source);
+                        }
                         sourceTrace?.Complete(sourceTrace.Direction?.Accepted == true ? "Counted" : "Skipped", sourceTrace.ReasonCode ?? "SpatialProbe");
                         continue;
                     }
@@ -1815,9 +1930,15 @@ namespace CardinalDirectionGlazing
                     if (TryGetExteriorDirectionFromBidirectionalSolidRays(center, facing, elementSolid, sourceTrace, out XYZ exteriorDirectionFromRay))
                     {
                         sourceTrace.ReasonCode = "SolidRay";
-                        UpdateWindowAreas(ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
+                        bool areaCounted = UpdateWindowAreas(ref windowsAreaNorth, ref windowsAreaSouth, ref windowsAreaWest, ref windowsAreaEast,
                             ref windowsAreaNorthwest, ref windowsAreaNortheast, ref windowsAreaSouthwest, ref windowsAreaSoutheast,
                             area, exteriorDirectionFromRay, trueNorthBasisX, trueNorthBasisY, sourceTrace);
+                        if (areaCounted && curtainPanel != null && areaResult != null)
+                        {
+                            curtainPanelAreaUsageSummary?.Register(
+                                CreateCurtainPanelUsageKey(curtainPanel),
+                                areaResult.Source);
+                        }
                         sourceTrace?.Complete(sourceTrace.Direction?.Accepted == true ? "Counted" : "Skipped", sourceTrace.ReasonCode);
                         continue;
                     }

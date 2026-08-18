@@ -39,6 +39,7 @@ internal static class Program
         AssertCurtainPanelAreaParameterControlsExist();
         AssertCurtainPanelCatalogUsesCurrentGlazingClassifier();
         AssertCurtainPanelAreaParameterReaderGuardsIdentityAndDataType();
+        AssertCurtainPanelAreaParameterFlowsToDirectionalTotals();
         AssertWindowAreaParameterIsIntegrated();
         AssertWindowAreaParameterRestorationUsesGuid();
         AssertWindowAreaParameterValueSelectionRejectsWrongDataTypes();
@@ -569,6 +570,37 @@ internal static class Program
         {
             if (!source.Contains(marker))
                 throw new InvalidOperationException($"Curtain panel reader marker is missing: {marker}");
+        }
+    }
+
+    private static void AssertCurtainPanelAreaParameterFlowsToDirectionalTotals()
+    {
+        string path = Path.Combine(
+            Environment.CurrentDirectory,
+            "CardinalDirectionGlazing",
+            "CardinalDirectionGlazingCommand.cs");
+        string source = File.ReadAllText(path);
+        string[] required =
+        {
+            "CurtainPanelAreaParameterCatalog.Collect",
+            "new CardinalDirectionGlazingWPF(revitLinkInstanceList, windowAreaParameters, curtainPanelAreaParameters)",
+            "SelectedCurtainPanelAreaParameter",
+            "CurtainPanelAreaParameterReader.TryRead",
+            "CurtainPanelAreaCalculator.Resolve",
+            "CurtainPanelAreaUsageSummary",
+            "double hostArea = GetFillHostArea(fill)",
+            "if (fill is Panel panel)",
+            "areaResult.Area",
+            "if (areaCounted)",
+            "curtainPanelAreaUsageSummary?.Register",
+            "Площадь витражных панелей из параметра",
+            "Площадь витражных панелей по HOST_AREA_COMPUTED"
+        };
+
+        foreach (string marker in required)
+        {
+            if (!source.Contains(marker))
+                throw new InvalidOperationException($"Curtain panel end-to-end marker is missing: {marker}");
         }
     }
 
