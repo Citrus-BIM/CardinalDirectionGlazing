@@ -29,6 +29,8 @@ internal static class Program
         AssertTraceWriteDoesNotOverwriteExistingFile();
         AssertWindowAreaResolution();
         AssertWindowAreaUsageSummaryDeduplicatesWindows();
+        AssertCurtainPanelAreaResolution();
+        AssertCurtainPanelAreaUsageSummaryDeduplicatesPanels();
         AssertWindowAreaSettingsRoundTrip();
         AssertWindowAreaParameterControlsExist();
         AssertWindowAreaParameterIsIntegrated();
@@ -195,6 +197,49 @@ internal static class Program
         if (summary.ParameterCount != 1 || summary.DimensionsFallbackCount != 1)
         {
             throw new InvalidOperationException("Window area usage summary must count each source window once.");
+        }
+    }
+
+    private static void AssertCurtainPanelAreaResolution()
+    {
+        AssertCurtainPanelArea(false, 10.8, 12.5, 12.5, CurtainPanelAreaValueSource.HostArea, string.Empty);
+        AssertCurtainPanelArea(true, 10.8, 12.5, 10.8, CurtainPanelAreaValueSource.Parameter, string.Empty);
+        AssertCurtainPanelArea(true, null, 12.5, 12.5, CurtainPanelAreaValueSource.HostAreaFallback, "MissingParameter");
+        AssertCurtainPanelArea(true, 0, 12.5, 12.5, CurtainPanelAreaValueSource.HostAreaFallback, "NonPositiveParameter");
+        AssertCurtainPanelArea(true, -1, 12.5, 12.5, CurtainPanelAreaValueSource.HostAreaFallback, "NonPositiveParameter");
+        AssertCurtainPanelArea(true, double.NaN, 12.5, 12.5, CurtainPanelAreaValueSource.HostAreaFallback, "NonFiniteParameter");
+        AssertCurtainPanelArea(true, double.PositiveInfinity, 12.5, 12.5, CurtainPanelAreaValueSource.HostAreaFallback, "NonFiniteParameter");
+        AssertCurtainPanelArea(true, double.NegativeInfinity, 12.5, 12.5, CurtainPanelAreaValueSource.HostAreaFallback, "NonFiniteParameter");
+    }
+
+    private static void AssertCurtainPanelArea(
+        bool useParameter,
+        double? parameterArea,
+        double hostArea,
+        double expectedArea,
+        CurtainPanelAreaValueSource expectedSource,
+        string expectedReason)
+    {
+        CurtainPanelAreaResult result = CurtainPanelAreaCalculator.Resolve(useParameter, parameterArea, hostArea);
+        if (Math.Abs(result.Area - expectedArea) > 1e-9
+            || result.Source != expectedSource
+            || result.FallbackReason != expectedReason)
+        {
+            throw new InvalidOperationException("Unexpected curtain panel area result.");
+        }
+    }
+
+    private static void AssertCurtainPanelAreaUsageSummaryDeduplicatesPanels()
+    {
+        var summary = new CurtainPanelAreaUsageSummary();
+        summary.Register("doc-a|panel-1", CurtainPanelAreaValueSource.Parameter);
+        summary.Register("doc-a|panel-1", CurtainPanelAreaValueSource.Parameter);
+        summary.Register("doc-b|panel-1", CurtainPanelAreaValueSource.HostAreaFallback);
+        summary.Register("doc-c|panel-2", CurtainPanelAreaValueSource.HostArea);
+
+        if (summary.ParameterCount != 1 || summary.HostAreaFallbackCount != 1)
+        {
+            throw new InvalidOperationException("Curtain panel summary must deduplicate by document and UniqueId.");
         }
     }
 
