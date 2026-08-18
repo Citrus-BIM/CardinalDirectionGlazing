@@ -28,20 +28,19 @@ namespace CardinalDirectionGlazing
                     || string.IsNullOrWhiteSpace(observation.Name))
                     continue;
 
-                string key = observation.Scope + "|" + observation.Name;
+                string sharedGuid = NormalizeGuid(observation.SharedGuid);
+                string key = sharedGuid.Length > 0
+                    ? observation.Scope + "|Shared|" + sharedGuid
+                    : observation.Scope + "|Named|" + observation.Name;
                 if (!options.TryGetValue(key, out WindowAreaParameterOption? option))
                 {
                     option = new WindowAreaParameterOption
                     {
                         Name = observation.Name,
                         Scope = observation.Scope,
-                        SharedGuid = observation.SharedGuid
+                        SharedGuid = sharedGuid
                     };
                     options.Add(key, option);
-                }
-                else if (option.SharedGuid.Length == 0 && observation.SharedGuid.Length > 0)
-                {
-                    option.SharedGuid = observation.SharedGuid;
                 }
             }
 
@@ -49,6 +48,13 @@ namespace CardinalDirectionGlazing
                 .OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ThenBy(item => item.Scope)
                 .ToList();
+        }
+
+        private static string NormalizeGuid(string value)
+        {
+            return Guid.TryParse(value, out Guid guid)
+                ? guid.ToString("D")
+                : string.Empty;
         }
     }
 }

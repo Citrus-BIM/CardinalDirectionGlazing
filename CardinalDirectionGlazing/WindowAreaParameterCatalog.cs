@@ -11,6 +11,9 @@ namespace CardinalDirectionGlazing
             Document currentDocument,
             IEnumerable<RevitLinkInstance> links)
         {
+            if (currentDocument == null)
+                return Array.Empty<WindowAreaParameterOption>();
+
             var documents = new List<Document> { currentDocument };
             foreach (RevitLinkInstance link in links ?? Enumerable.Empty<RevitLinkInstance>())
             {
@@ -22,17 +25,28 @@ namespace CardinalDirectionGlazing
             var observations = new List<WindowAreaParameterObservation>();
             foreach (Document document in documents)
             {
+                var processedSymbols = new HashSet<ElementId>();
                 IEnumerable<FamilyInstance> windows = new FilteredElementCollector(document)
                     .OfCategory(BuiltInCategory.OST_Windows)
                     .OfClass(typeof(FamilyInstance))
                     .WhereElementIsNotElementType()
-                    .Cast<FamilyInstance>();
+                    .Cast<FamilyInstance>()
+                    .Where(window => window.SuperComponent == null);
 
                 foreach (FamilyInstance window in windows)
                 {
+                    FamilySymbol? symbol = window.Symbol;
+                    if (symbol == null)
+                    {
+                        AddParameters(document.Title, window, WindowAreaParameterScope.Instance, observations);
+                        continue;
+                    }
+
+                    if (!processedSymbols.Add(symbol.Id))
+                        continue;
+
                     AddParameters(document.Title, window, WindowAreaParameterScope.Instance, observations);
-                    if (window.Symbol != null)
-                        AddParameters(document.Title, window.Symbol, WindowAreaParameterScope.Type, observations);
+                    AddParameters(document.Title, symbol, WindowAreaParameterScope.Type, observations);
                 }
             }
 
@@ -48,7 +62,10 @@ namespace CardinalDirectionGlazing
             foreach (Parameter parameter in element.Parameters)
             {
                 Definition? definition = parameter?.Definition;
-                if (parameter == null || definition == null)
+                if (parameter == null
+                    || definition == null
+                    || parameter.StorageType != StorageType.Double
+                    || !IsAreaDefinition(definition))
                     continue;
 
                 string sharedGuid = string.Empty;
@@ -69,8 +86,8 @@ namespace CardinalDirectionGlazing
                     Name = definition.Name,
                     Scope = scope,
                     SharedGuid = sharedGuid,
-                    IsArea = IsAreaDefinition(definition),
-                    IsDouble = parameter.StorageType == StorageType.Double
+                    IsArea = true,
+                    IsDouble = true
                 });
             }
         }

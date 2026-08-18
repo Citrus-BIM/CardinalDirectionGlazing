@@ -34,8 +34,9 @@ internal static class Program
         AssertWindowAreaParameterIsIntegrated();
         AssertWindowAreaParameterRestorationUsesGuid();
         AssertWindowAreaParameterValueSelectionRejectsWrongDataTypes();
-        AssertRevitWindowAreaAdaptersUseValidatedSelection();
+        AssertWindowAreaParameterSelectionFlowsIntoAreaCalculation();
         AssertWindowAreaCatalogCombinesCurrentAndLinkedObservations();
+        AssertWindowAreaCatalogKeepsDistinctSharedParameters();
 
         if (CardinalDirectionClassifier.TryClassify(0, 0, 1, 0, 0, 1, out _))
         {
@@ -162,6 +163,8 @@ internal static class Program
         AssertAreaResult(true, 0.0, 12.5, 12.5, WindowAreaValueSource.DimensionsFallback, "NonPositiveParameter");
         AssertAreaResult(true, -1.0, 12.5, 12.5, WindowAreaValueSource.DimensionsFallback, "NonPositiveParameter");
         AssertAreaResult(true, double.NaN, 12.5, 12.5, WindowAreaValueSource.DimensionsFallback, "NonFiniteParameter");
+        AssertAreaResult(true, double.PositiveInfinity, 12.5, 12.5, WindowAreaValueSource.DimensionsFallback, "NonFiniteParameter");
+        AssertAreaResult(true, double.NegativeInfinity, 12.5, 12.5, WindowAreaValueSource.DimensionsFallback, "NonFiniteParameter");
     }
 
     private static void AssertAreaResult(
@@ -273,6 +276,15 @@ internal static class Program
 
     private static void AssertWindowAreaParameterRestorationUsesGuid()
     {
+        if (WindowAreaParameterSelection.Restore(
+                null!,
+                "Unused",
+                WindowAreaParameterScope.Instance.ToString(),
+                string.Empty) != null)
+        {
+            throw new InvalidOperationException("A missing option catalog must restore no selection.");
+        }
+
         var first = new WindowAreaParameterOption
         {
             Name = "В_Площадь остекления",
@@ -295,15 +307,16 @@ internal static class Program
             throw new InvalidOperationException("Saved shared GUID must win over a duplicate parameter name.");
 
         const string unavailableGuid = "33333333-3333-3333-3333-333333333333";
-        WindowAreaParameterOption? crossDocument = WindowAreaParameterSelection.Restore(
+        WindowAreaParameterOption? unavailable = WindowAreaParameterSelection.Restore(
             new[] { first },
             first.Name,
             first.Scope.ToString(),
             unavailableGuid);
-        if (!ReferenceEquals(crossDocument, first)
-            || first.SharedGuid != unavailableGuid)
+        if (unavailable != null
+            || first.SharedGuid != "11111111-1111-1111-1111-111111111111")
         {
-            throw new InvalidOperationException("Name fallback must select the ComboBox source item and retain the saved GUID.");
+            throw new InvalidOperationException(
+                "A missing saved shared GUID must not fall back to or mutate a same-named option.");
         }
     }
 
@@ -317,6 +330,7 @@ internal static class Program
         };
         var exact = new WindowAreaParameterValueCandidate
         {
+            SharedGuid = option.SharedGuid,
             IsArea = true,
             IsDouble = true,
             Value = 10.8
@@ -333,6 +347,11 @@ internal static class Program
             IsDouble = true,
             Value = 25.0
         };
+        var namedOption = new WindowAreaParameterOption
+        {
+            Name = option.Name,
+            Scope = option.Scope
+        };
 
         if (!WindowAreaParameterValueSelector.TrySelect(
                 option,
@@ -346,8 +365,45 @@ internal static class Program
             throw new InvalidOperationException("A valid GUID match must be used before name fallback.");
         }
 
-        if (!WindowAreaParameterValueSelector.TrySelect(
+        var wrongExactStorage = new WindowAreaParameterValueCandidate
+        {
+            SharedGuid = option.SharedGuid,
+            IsArea = true,
+            IsDouble = false
+        };
+        if (WindowAreaParameterValueSelector.TrySelect(
                 option,
+                wrongExactStorage,
+                Array.Empty<WindowAreaParameterValueCandidate>(),
+                out _,
+                out string wrongStorageReason)
+            || wrongStorageReason != "InvalidStorageType")
+        {
+            throw new InvalidOperationException(
+                "An exact area parameter with the wrong storage type must be rejected.");
+        }
+
+        var wrongExactDataType = new WindowAreaParameterValueCandidate
+        {
+            SharedGuid = option.SharedGuid,
+            IsArea = false,
+            IsDouble = true,
+            Value = 25.0
+        };
+        if (WindowAreaParameterValueSelector.TrySelect(
+                option,
+                wrongExactDataType,
+                Array.Empty<WindowAreaParameterValueCandidate>(),
+                out _,
+                out string wrongDataTypeReason)
+            || wrongDataTypeReason != "InvalidDataType")
+        {
+            throw new InvalidOperationException(
+                "An exact shared parameter with a non-area data type must be rejected.");
+        }
+
+        if (!WindowAreaParameterValueSelector.TrySelect(
+                namedOption,
                 null,
                 new[] { namedLength, namedArea },
                 out double fallbackValue,
@@ -359,7 +415,7 @@ internal static class Program
         }
 
         if (WindowAreaParameterValueSelector.TrySelect(
-                option,
+                namedOption,
                 null,
                 new[] { namedLength },
                 out _,
@@ -368,27 +424,107 @@ internal static class Program
         {
             throw new InvalidOperationException("A same-named non-area Double must be rejected.");
         }
-    }
 
-    private static void AssertRevitWindowAreaAdaptersUseValidatedSelection()
-    {
-        string readerPath = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing", "WindowAreaParameterReader.cs");
-        string reader = File.ReadAllText(readerPath);
-        if (!reader.Contains("source.GetParameters(option.Name)")
-            || !reader.Contains("WindowAreaParameterValueSelector.TrySelect"))
+        if (WindowAreaParameterValueSelector.TrySelect(
+                option,
+                null,
+                new[] { namedArea },
+                out _,
+                out string missingGuidReason)
+            || missingGuidReason != "MissingParameter")
         {
-            throw new InvalidOperationException("The Revit reader must validate all same-named candidates through the tested selector.");
+            throw new InvalidOperationException(
+                "A shared option must not fall back to a same-named parameter when the exact GUID is missing.");
         }
 
-        string windowPath = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing", "CardinalDirectionGlazingWPF.xaml.cs");
-        string window = File.ReadAllText(windowPath);
-        if (!window.Contains("WindowAreaParameterSelection.Restore"))
-            throw new InvalidOperationException("WPF settings restoration must use the tested GUID-first selector.");
+        var wrongExactIdentity = new WindowAreaParameterValueCandidate
+        {
+            SharedGuid = "11111111-1111-1111-1111-111111111111",
+            IsArea = true,
+            IsDouble = true,
+            Value = 99.0
+        };
+        if (WindowAreaParameterValueSelector.TrySelect(
+                option,
+                wrongExactIdentity,
+                Array.Empty<WindowAreaParameterValueCandidate>(),
+                out _,
+                out string wrongIdentityReason)
+            || wrongIdentityReason != "MissingParameter")
+        {
+            throw new InvalidOperationException(
+                "An exact candidate with another shared GUID must be rejected.");
+        }
 
-        string catalogPath = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing", "WindowAreaParameterCatalog.cs");
-        string catalog = File.ReadAllText(catalogPath);
-        if (!catalog.Contains("WindowAreaParameterCatalogBuilder.Build"))
-            throw new InvalidOperationException("The Revit catalog must delegate current and linked observations to the tested builder.");
+        var sharedNamedCandidate = new WindowAreaParameterValueCandidate
+        {
+            SharedGuid = option.SharedGuid,
+            IsArea = true,
+            IsDouble = true,
+            Value = 88.0
+        };
+        if (!WindowAreaParameterValueSelector.TrySelect(
+                namedOption,
+                null,
+                new[] { sharedNamedCandidate, namedArea },
+                out double nonSharedValue,
+                out _)
+            || Math.Abs(nonSharedValue - namedArea.Value) > 1e-9)
+        {
+            throw new InvalidOperationException(
+                "A non-shared option must ignore a same-named shared candidate.");
+        }
+    }
+
+    private static void AssertWindowAreaParameterSelectionFlowsIntoAreaCalculation()
+    {
+        var option = new WindowAreaParameterOption
+        {
+            Name = "SameName",
+            Scope = WindowAreaParameterScope.Instance,
+            SharedGuid = "22222222-2222-2222-2222-222222222222"
+        };
+        var exact = new WindowAreaParameterValueCandidate
+        {
+            SharedGuid = option.SharedGuid,
+            IsArea = true,
+            IsDouble = true,
+            Value = 10.8
+        };
+
+        bool selected = WindowAreaParameterValueSelector.TrySelect(
+            option,
+            exact,
+            Array.Empty<WindowAreaParameterValueCandidate>(),
+            out double value,
+            out _);
+        WindowAreaResult parameterResult = WindowAreaCalculator.Resolve(
+            true,
+            selected ? value : null,
+            12.5);
+        if (parameterResult.Source != WindowAreaValueSource.Parameter
+            || Math.Abs(parameterResult.Area - 10.8) > 1e-9)
+        {
+            throw new InvalidOperationException(
+                "The selected exact GUID value must flow into the calculated window area.");
+        }
+
+        bool missing = WindowAreaParameterValueSelector.TrySelect(
+            option,
+            null,
+            new[] { exact },
+            out _,
+            out _);
+        WindowAreaResult fallbackResult = WindowAreaCalculator.Resolve(
+            true,
+            missing ? exact.Value : null,
+            12.5);
+        if (fallbackResult.Source != WindowAreaValueSource.DimensionsFallback
+            || Math.Abs(fallbackResult.Area - 12.5) > 1e-9)
+        {
+            throw new InvalidOperationException(
+                "A missing exact GUID must flow into the dimensions fallback.");
+        }
     }
 
     private static void AssertWindowAreaCatalogCombinesCurrentAndLinkedObservations()
@@ -441,6 +577,59 @@ internal static class Program
             || type?.SharedGuid != "11111111-1111-1111-1111-111111111111")
         {
             throw new InvalidOperationException("The catalog must merge valid area parameters from current and linked documents by scope.");
+        }
+    }
+
+    private static void AssertWindowAreaCatalogKeepsDistinctSharedParameters()
+    {
+        var observations = new[]
+        {
+            new WindowAreaParameterObservation
+            {
+                DocumentKey = "Current",
+                Name = "SameName",
+                Scope = WindowAreaParameterScope.Instance,
+                SharedGuid = "11111111-1111-1111-1111-111111111111",
+                IsArea = true,
+                IsDouble = true
+            },
+            new WindowAreaParameterObservation
+            {
+                DocumentKey = "Linked",
+                Name = "SameName",
+                Scope = WindowAreaParameterScope.Instance,
+                SharedGuid = "22222222-2222-2222-2222-222222222222",
+                IsArea = true,
+                IsDouble = true
+            },
+            new WindowAreaParameterObservation
+            {
+                DocumentKey = "LinkedDuplicate",
+                Name = "SameName",
+                Scope = WindowAreaParameterScope.Instance,
+                SharedGuid = "22222222-2222-2222-2222-222222222222",
+                IsArea = true,
+                IsDouble = true
+            },
+            new WindowAreaParameterObservation
+            {
+                DocumentKey = "CurrentNonShared",
+                Name = "SameName",
+                Scope = WindowAreaParameterScope.Instance,
+                IsArea = true,
+                IsDouble = true
+            }
+        };
+
+        IReadOnlyList<WindowAreaParameterOption> options =
+            WindowAreaParameterCatalogBuilder.Build(observations);
+        if (options.Count != 3
+            || !options.Any(item => item.SharedGuid == observations[0].SharedGuid)
+            || !options.Any(item => item.SharedGuid == observations[1].SharedGuid)
+            || !options.Any(item => item.SharedGuid.Length == 0))
+        {
+            throw new InvalidOperationException(
+                "Same-named shared parameters with different GUIDs and a non-shared parameter must remain distinct.");
         }
     }
 

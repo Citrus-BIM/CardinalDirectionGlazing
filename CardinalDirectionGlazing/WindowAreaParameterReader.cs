@@ -15,6 +15,11 @@ namespace CardinalDirectionGlazing
         {
             value = 0;
             reason = string.Empty;
+            if (window == null || option == null)
+            {
+                reason = "MissingParameter";
+                return false;
+            }
 
             Element? source = option.Scope == WindowAreaParameterScope.Instance
                 ? window
@@ -25,19 +30,40 @@ namespace CardinalDirectionGlazing
                 return false;
             }
 
-            Parameter? exactParameter = null;
-            if (Guid.TryParse(option.SharedGuid, out Guid guid))
-                exactParameter = source.get_Parameter(guid);
+            if (!string.IsNullOrWhiteSpace(option.SharedGuid))
+            {
+                if (!Guid.TryParse(option.SharedGuid, out Guid guid))
+                {
+                    reason = "MissingParameter";
+                    return false;
+                }
 
-            WindowAreaParameterValueCandidate? exactCandidate = exactParameter == null
-                ? null
-                : CreateCandidate(exactParameter);
+                Parameter? exactParameter = source.get_Parameter(guid);
+                if (exactParameter == null)
+                {
+                    reason = "MissingParameter";
+                    return false;
+                }
+
+                return WindowAreaParameterValueSelector.TrySelect(
+                    option,
+                    CreateCandidate(exactParameter),
+                    Enumerable.Empty<WindowAreaParameterValueCandidate>(),
+                    out value,
+                    out reason);
+            }
+
+            if (string.IsNullOrWhiteSpace(option.Name))
+            {
+                reason = "MissingParameter";
+                return false;
+            }
+
             IEnumerable<WindowAreaParameterValueCandidate> nameCandidates =
                 source.GetParameters(option.Name).Select(CreateCandidate);
-
             return WindowAreaParameterValueSelector.TrySelect(
                 option,
-                exactCandidate,
+                null,
                 nameCandidates,
                 out value,
                 out reason);
@@ -48,10 +74,26 @@ namespace CardinalDirectionGlazing
             bool isDouble = parameter.StorageType == StorageType.Double;
             return new WindowAreaParameterValueCandidate
             {
+                SharedGuid = GetSharedGuid(parameter),
                 IsArea = IsAreaDefinition(parameter.Definition),
                 IsDouble = isDouble,
                 Value = isDouble ? parameter.AsDouble() : 0
             };
+        }
+
+        private static string GetSharedGuid(Parameter parameter)
+        {
+            if (!parameter.IsShared)
+                return string.Empty;
+
+            try
+            {
+                return parameter.GUID.ToString("D");
+            }
+            catch (InvalidOperationException)
+            {
+                return string.Empty;
+            }
         }
 
         private static bool IsAreaDefinition(Definition? definition)

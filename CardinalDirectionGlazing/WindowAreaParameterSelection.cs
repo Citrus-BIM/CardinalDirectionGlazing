@@ -12,31 +12,28 @@ namespace CardinalDirectionGlazing
             string savedScope,
             string savedGuid)
         {
+            if (options == null)
+                return null;
             if (!Enum.TryParse(savedScope, out WindowAreaParameterScope scope))
                 return null;
 
             if (!string.IsNullOrWhiteSpace(savedGuid))
             {
-                WindowAreaParameterOption? exact = options.FirstOrDefault(item =>
+                return options.FirstOrDefault(item =>
                     item.Scope == scope
                     && string.Equals(item.SharedGuid, savedGuid, StringComparison.OrdinalIgnoreCase));
-                if (exact != null)
-                    return exact;
             }
 
-            WindowAreaParameterOption? byName = options.FirstOrDefault(item =>
+            return options.FirstOrDefault(item =>
                 item.Scope == scope
+                && string.IsNullOrWhiteSpace(item.SharedGuid)
                 && string.Equals(item.Name, savedName, StringComparison.Ordinal));
-            if (byName == null || string.IsNullOrWhiteSpace(savedGuid))
-                return byName;
-
-            byName.SharedGuid = savedGuid;
-            return byName;
         }
     }
 
     public sealed class WindowAreaParameterValueCandidate
     {
+        public string SharedGuid { get; set; } = string.Empty;
         public bool IsArea { get; set; }
         public bool IsDouble { get; set; }
         public double Value { get; set; }
@@ -59,11 +56,26 @@ namespace CardinalDirectionGlazing
                 return false;
             }
 
-            if (exactGuidCandidate != null)
+            if (!string.IsNullOrWhiteSpace(option.SharedGuid))
+            {
+                if (exactGuidCandidate == null)
+                {
+                    reason = "MissingParameter";
+                    return false;
+                }
+                if (!SameGuid(exactGuidCandidate.SharedGuid, option.SharedGuid))
+                {
+                    reason = "MissingParameter";
+                    return false;
+                }
+
                 return TryReadCandidate(exactGuidCandidate, out value, out reason);
+            }
 
             List<WindowAreaParameterValueCandidate> candidates =
-                (nameCandidates ?? Enumerable.Empty<WindowAreaParameterValueCandidate>()).ToList();
+                (nameCandidates ?? Enumerable.Empty<WindowAreaParameterValueCandidate>())
+                .Where(candidate => string.IsNullOrWhiteSpace(candidate.SharedGuid))
+                .ToList();
             WindowAreaParameterValueCandidate? valid =
                 candidates.FirstOrDefault(candidate => candidate.IsArea && candidate.IsDouble);
             if (valid != null)
@@ -101,6 +113,13 @@ namespace CardinalDirectionGlazing
 
             value = candidate.Value;
             return true;
+        }
+
+        private static bool SameGuid(string left, string right)
+        {
+            return Guid.TryParse(left, out Guid leftGuid)
+                && Guid.TryParse(right, out Guid rightGuid)
+                && leftGuid == rightGuid;
         }
     }
 }
