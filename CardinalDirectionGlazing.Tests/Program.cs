@@ -37,6 +37,7 @@ internal static class Program
         AssertCurtainPanelAreaSettingsRoundTrip();
         AssertWindowAreaParameterControlsExist();
         AssertCurtainPanelAreaParameterControlsExist();
+        AssertCurtainPanelCatalogUsesCurrentGlazingClassifier();
         AssertWindowAreaParameterIsIntegrated();
         AssertWindowAreaParameterRestorationUsesGuid();
         AssertWindowAreaParameterValueSelectionRejectsWrongDataTypes();
@@ -496,6 +497,49 @@ internal static class Program
             if (!xaml.Contains(marker))
                 throw new InvalidOperationException($"Curtain panel area UI marker is missing: {marker}");
         }
+    }
+
+    private static void AssertCurtainPanelCatalogUsesCurrentGlazingClassifier()
+    {
+        string project = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing");
+        string command = File.ReadAllText(Path.Combine(project, "CardinalDirectionGlazingCommand.cs"));
+        string catalogPath = Path.Combine(project, "CurtainPanelAreaParameterCatalog.cs");
+        string classifierPath = Path.Combine(project, "CurtainGridFillGlazingClassifier.cs");
+        if (!File.Exists(catalogPath) || !File.Exists(classifierPath))
+            throw new InvalidOperationException("Curtain panel catalog and classifier must exist.");
+
+        string catalog = File.ReadAllText(catalogPath);
+        string classifier = File.ReadAllText(classifierPath);
+        string[] commandMarkers =
+        {
+            "CurtainGridFillGlazingClassifier.IsGlazing(fill, sourceTrace)"
+        };
+        string[] catalogMarkers =
+        {
+            "GetPanelIds()",
+            "fill is Panel panel",
+            "CurtainGridFillGlazingClassifier.IsGlazing(panel)",
+            "StorageType.Double",
+            "SpecTypeId.Area",
+            "ParameterType.Area"
+        };
+        string[] classifierMarkers =
+        {
+            "CURTAIN_WALL_PANELS_CONSTRUCTION_TYPE",
+            "FindHostPanel",
+            "fill is Wall wall",
+            "UnsupportedFillType"
+        };
+
+        foreach (string marker in commandMarkers)
+            if (!command.Contains(marker))
+                throw new InvalidOperationException($"Command classifier marker is missing: {marker}");
+        foreach (string marker in catalogMarkers)
+            if (!catalog.Contains(marker))
+                throw new InvalidOperationException($"Panel catalog marker is missing: {marker}");
+        foreach (string marker in classifierMarkers)
+            if (!classifier.Contains(marker))
+                throw new InvalidOperationException($"Panel classifier marker is missing: {marker}");
     }
 
     private static void AssertWindowAreaParameterIsIntegrated()
