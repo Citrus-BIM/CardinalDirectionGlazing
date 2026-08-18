@@ -26,7 +26,7 @@ namespace CardinalDirectionGlazing
                         documents.Add(linkedDocument);
                     }
                 }
-                catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+                catch (Exception)
                 {
                 }
             }
@@ -55,49 +55,41 @@ namespace CardinalDirectionGlazing
                     .OfClass(typeof(Wall))
                     .WhereElementIsNotElementType()
                     .Cast<Wall>()
-                    .Where(wall => wall.CurtainGrid != null)
                     .ToList();
             }
-            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            catch (Exception)
             {
                 return;
             }
 
             foreach (Wall wall in curtainWalls)
             {
-                CurtainGrid grid;
-                ICollection<ElementId> panelIds;
+                if (!TryGetCurtainGrid(wall, out ICollection<ElementId> panelIds))
+                    continue;
+
+                List<ElementId> stablePanelIds;
                 try
                 {
-                    grid = wall?.CurtainGrid;
-                    panelIds = grid?.GetPanelIds();
+                    stablePanelIds = panelIds.ToList();
                 }
-                catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+                catch (Exception)
                 {
                     continue;
                 }
 
-                if (grid == null || panelIds == null)
-                    continue;
-
-                foreach (ElementId panelId in panelIds)
+                foreach (ElementId panelId in stablePanelIds)
                 {
-                    if (panelId == null || panelId == ElementId.InvalidElementId)
+                    if (!TryGetGlazingPanel(document, panelId, out Panel panel))
+                    {
                         continue;
+                    }
 
-                    Element fill;
                     try
                     {
-                        fill = document.GetElement(panelId);
+                        if (!processedPanels.Add(panel.Id))
+                            continue;
                     }
-                    catch (Autodesk.Revit.Exceptions.InvalidOperationException)
-                    {
-                        continue;
-                    }
-
-                    if (!(fill is Panel panel)
-                        || !CurtainGridFillGlazingClassifier.IsGlazing(panel)
-                        || !processedPanels.Add(panel.Id))
+                    catch (Exception)
                     {
                         continue;
                     }
@@ -109,16 +101,76 @@ namespace CardinalDirectionGlazing
                         CurtainPanelAreaParameterScope.Instance,
                         observations);
 
-                    FamilySymbol symbol = panel.Symbol;
-                    if (symbol != null && processedTypes.Add(symbol.Id))
+                    FamilySymbol symbol;
+                    try
                     {
-                        AddParameters(
-                            documentKey,
-                            symbol,
-                            CurtainPanelAreaParameterScope.Type,
-                            observations);
+                        symbol = panel.Symbol;
+                        if (symbol != null && processedTypes.Add(symbol.Id))
+                        {
+                            AddParameters(
+                                documentKey,
+                                symbol,
+                                CurtainPanelAreaParameterScope.Type,
+                                observations);
+                        }
+                    }
+                    catch (Exception)
+                    {
                     }
                 }
+            }
+        }
+
+        private static bool TryGetCurtainGrid(
+            Wall wall,
+            out ICollection<ElementId> panelIds)
+        {
+            panelIds = null;
+            try
+            {
+                CurtainGrid grid = wall?.CurtainGrid;
+                if (grid == null)
+                    return false;
+
+                panelIds = grid.GetPanelIds();
+                return panelIds != null;
+            }
+            catch (Exception)
+            {
+                panelIds = null;
+                return false;
+            }
+        }
+
+        private static bool TryGetGlazingPanel(
+            Document document,
+            ElementId panelId,
+            out Panel result)
+        {
+            result = null;
+            try
+            {
+                if (document == null
+                    || panelId == null
+                    || panelId == ElementId.InvalidElementId)
+                {
+                    return false;
+                }
+
+                Element fill = document.GetElement(panelId);
+                if (!(fill is Panel panel))
+                    return false;
+
+                if (!CurtainGridFillGlazingClassifier.IsGlazing(panel))
+                    return false;
+
+                result = panel;
+                return true;
+            }
+            catch (Exception)
+            {
+                result = null;
+                return false;
             }
         }
 
@@ -131,31 +183,56 @@ namespace CardinalDirectionGlazing
             if (element == null)
                 return;
 
+            ParameterSet parameters;
             try
             {
-                foreach (Parameter parameter in element.Parameters)
-                {
-                    Definition definition = parameter?.Definition;
-                    if (parameter == null
-                        || definition == null
-                        || parameter.StorageType != StorageType.Double
-                        || !IsAreaDefinition(definition))
-                    {
-                        continue;
-                    }
+                parameters = element.Parameters;
+            }
+            catch (Exception)
+            {
+                return;
+            }
 
-                    observations.Add(new CurtainPanelAreaParameterObservation
-                    {
-                        DocumentKey = documentKey,
-                        Name = definition.Name,
-                        Scope = scope,
-                        SharedGuid = GetSharedGuid(parameter),
-                        IsArea = true,
-                        IsDouble = true
-                    });
+            try
+            {
+                foreach (Parameter parameter in parameters)
+                {
+                    TryAddParameter(documentKey, parameter, scope, observations);
                 }
             }
-            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void TryAddParameter(
+            string documentKey,
+            Parameter parameter,
+            CurtainPanelAreaParameterScope scope,
+            ICollection<CurtainPanelAreaParameterObservation> observations)
+        {
+            try
+            {
+                Definition definition = parameter?.Definition;
+                if (parameter == null
+                    || definition == null
+                    || parameter.StorageType != StorageType.Double
+                    || !IsAreaDefinition(definition))
+                {
+                    return;
+                }
+
+                observations.Add(new CurtainPanelAreaParameterObservation
+                {
+                    DocumentKey = documentKey,
+                    Name = definition.Name,
+                    Scope = scope,
+                    SharedGuid = GetSharedGuid(parameter),
+                    IsArea = true,
+                    IsDouble = true
+                });
+            }
+            catch (Exception)
             {
             }
         }
@@ -169,7 +246,7 @@ namespace CardinalDirectionGlazing
             {
                 return parameter.GUID.ToString("D");
             }
-            catch (InvalidOperationException)
+            catch (Exception)
             {
                 return string.Empty;
             }
@@ -181,7 +258,7 @@ namespace CardinalDirectionGlazing
             {
                 return document.PathName + "|" + document.Title;
             }
-            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            catch (Exception)
             {
                 return string.Empty;
             }

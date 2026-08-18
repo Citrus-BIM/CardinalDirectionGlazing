@@ -897,28 +897,6 @@ namespace CardinalDirectionGlazing
             return result;
         }
 
-        private static string CreateCurtainPanelUsageKey(Panel panel)
-        {
-            if (panel == null)
-                return string.Empty;
-
-            try
-            {
-                Document document = panel.Document;
-                if (document == null || string.IsNullOrWhiteSpace(panel.UniqueId))
-                    return string.Empty;
-
-                return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(document)
-                    .ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    + "|"
-                    + panel.UniqueId;
-            }
-            catch (Exception)
-            {
-                return string.Empty;
-            }
-        }
-
         private void ProcessWindows(
             IEnumerable<FamilyInstance>? windows,
             Transform sourceToHostTransform,
@@ -1914,7 +1892,8 @@ namespace CardinalDirectionGlazing
                         if (areaCounted && curtainPanel != null && areaResult != null)
                         {
                             curtainPanelAreaUsageSummary?.Register(
-                                CreateCurtainPanelUsageKey(curtainPanel),
+                                curtainPanel.Document,
+                                curtainPanel.UniqueId,
                                 areaResult.Source);
                         }
                         sourceTrace?.Complete(sourceTrace.Direction?.Accepted == true ? "Counted" : "Skipped", sourceTrace.ReasonCode ?? "SpatialProbe");
@@ -1936,7 +1915,8 @@ namespace CardinalDirectionGlazing
                         if (areaCounted && curtainPanel != null && areaResult != null)
                         {
                             curtainPanelAreaUsageSummary?.Register(
-                                CreateCurtainPanelUsageKey(curtainPanel),
+                                curtainPanel.Document,
+                                curtainPanel.UniqueId,
                                 areaResult.Source);
                         }
                         sourceTrace?.Complete(sourceTrace.Direction?.Accepted == true ? "Counted" : "Skipped", sourceTrace.ReasonCode);

@@ -52,21 +52,59 @@ namespace CardinalDirectionGlazing
 
     public sealed class CurtainPanelAreaUsageSummary
     {
-        private readonly HashSet<string> _registeredKeys =
-            new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<SourceKey> _registeredKeys = new HashSet<SourceKey>();
 
         public int ParameterCount { get; private set; }
         public int HostAreaFallbackCount { get; private set; }
 
-        public void Register(string sourceKey, CurtainPanelAreaValueSource source)
+        public void Register(
+            object documentIdentity,
+            string uniqueId,
+            CurtainPanelAreaValueSource source)
         {
-            if (string.IsNullOrWhiteSpace(sourceKey) || !_registeredKeys.Add(sourceKey))
+            if (documentIdentity == null
+                || string.IsNullOrWhiteSpace(uniqueId)
+                || !_registeredKeys.Add(new SourceKey(documentIdentity, uniqueId)))
+            {
                 return;
+            }
 
             if (source == CurtainPanelAreaValueSource.Parameter)
                 ParameterCount++;
             else if (source == CurtainPanelAreaValueSource.HostAreaFallback)
                 HostAreaFallbackCount++;
+        }
+
+        private readonly struct SourceKey : IEquatable<SourceKey>
+        {
+            private readonly object _documentIdentity;
+            private readonly string _uniqueId;
+
+            public SourceKey(object documentIdentity, string uniqueId)
+            {
+                _documentIdentity = documentIdentity;
+                _uniqueId = uniqueId;
+            }
+
+            public bool Equals(SourceKey other)
+            {
+                return ReferenceEquals(_documentIdentity, other._documentIdentity)
+                    && string.Equals(_uniqueId, other._uniqueId, StringComparison.Ordinal);
+            }
+
+            public override bool Equals(object? obj)
+            {
+                return obj is SourceKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return (System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(_documentIdentity) * 397)
+                        ^ StringComparer.Ordinal.GetHashCode(_uniqueId);
+                }
+            }
         }
     }
 }

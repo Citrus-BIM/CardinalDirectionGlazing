@@ -240,10 +240,12 @@ internal static class Program
     private static void AssertCurtainPanelAreaUsageSummaryDeduplicatesPanels()
     {
         var summary = new CurtainPanelAreaUsageSummary();
-        summary.Register("doc-a|panel-1", CurtainPanelAreaValueSource.Parameter);
-        summary.Register("doc-a|panel-1", CurtainPanelAreaValueSource.Parameter);
-        summary.Register("doc-b|panel-1", CurtainPanelAreaValueSource.HostAreaFallback);
-        summary.Register("doc-c|panel-2", CurtainPanelAreaValueSource.HostArea);
+        var documentA = new object();
+        var documentB = new object();
+        summary.Register(documentA, "panel-1", CurtainPanelAreaValueSource.Parameter);
+        summary.Register(documentA, "panel-1", CurtainPanelAreaValueSource.Parameter);
+        summary.Register(documentB, "panel-1", CurtainPanelAreaValueSource.HostAreaFallback);
+        summary.Register(new object(), "panel-2", CurtainPanelAreaValueSource.HostArea);
 
         if (summary.ParameterCount != 1 || summary.HostAreaFallbackCount != 1)
         {
@@ -522,6 +524,10 @@ internal static class Program
             "GetPanelIds()",
             "fill is Panel panel",
             "CurtainGridFillGlazingClassifier.IsGlazing(panel)",
+            "TryGetCurtainGrid",
+            "TryGetGlazingPanel",
+            "TryAddParameter",
+            "catch (Exception)",
             "StorageType.Double",
             "SpecTypeId.Area",
             "ParameterType.Area"
@@ -540,9 +546,19 @@ internal static class Program
         foreach (string marker in catalogMarkers)
             if (!catalog.Contains(marker))
                 throw new InvalidOperationException($"Panel catalog marker is missing: {marker}");
+        if (catalog.Contains(".Where(wall => wall.CurtainGrid != null)"))
+            throw new InvalidOperationException("A failing CurtainGrid getter must not abort the entire document catalog.");
         foreach (string marker in classifierMarkers)
             if (!classifier.Contains(marker))
                 throw new InvalidOperationException($"Panel classifier marker is missing: {marker}");
+
+        int instanceParameters = catalog.IndexOf("CurtainPanelAreaParameterScope.Instance", StringComparison.Ordinal);
+        int symbolRead = catalog.IndexOf("symbol = panel.Symbol", StringComparison.Ordinal);
+        if (instanceParameters < 0 || symbolRead < 0 || instanceParameters > symbolRead)
+        {
+            throw new InvalidOperationException(
+                "Instance parameters must still be collected when the panel type is missing or unreadable.");
+        }
     }
 
     private static void AssertCurtainPanelAreaParameterReaderGuardsIdentityAndDataType()
