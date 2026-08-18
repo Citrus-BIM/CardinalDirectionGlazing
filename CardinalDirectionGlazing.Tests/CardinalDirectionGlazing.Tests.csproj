@@ -17,5 +17,8 @@
     <Compile Include="..\CardinalDirectionGlazing\WindowAreaParameterOption.cs" Link="WindowAreaParameterOption.cs" />
     <Compile Include="..\CardinalDirectionGlazing\WindowAreaParameterSelection.cs" Link="WindowAreaParameterSelection.cs" />
     <Compile Include="..\CardinalDirectionGlazing\CurtainPanelAreaCalculation.cs" Link="CurtainPanelAreaCalculation.cs" />
+    <Compile Include="..\CardinalDirectionGlazing\CurtainPanelAreaParameterOption.cs" Link="CurtainPanelAreaParameterOption.cs" />
+    <Compile Include="..\CardinalDirectionGlazing\CurtainPanelAreaParameterCatalogBuilder.cs" Link="CurtainPanelAreaParameterCatalogBuilder.cs" />
+    <Compile Include="..\CardinalDirectionGlazing\CurtainPanelAreaParameterSelection.cs" Link="CurtainPanelAreaParameterSelection.cs" />
   </ItemGroup>
 </Project>

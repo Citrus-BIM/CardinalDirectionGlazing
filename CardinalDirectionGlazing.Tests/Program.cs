@@ -31,6 +31,8 @@ internal static class Program
         AssertWindowAreaUsageSummaryDeduplicatesWindows();
         AssertCurtainPanelAreaResolution();
         AssertCurtainPanelAreaUsageSummaryDeduplicatesPanels();
+        AssertCurtainPanelParameterSelection();
+        AssertCurtainPanelCatalogBuilder();
         AssertWindowAreaSettingsRoundTrip();
         AssertWindowAreaParameterControlsExist();
         AssertWindowAreaParameterIsIntegrated();
@@ -240,6 +242,138 @@ internal static class Program
         if (summary.ParameterCount != 1 || summary.HostAreaFallbackCount != 1)
         {
             throw new InvalidOperationException("Curtain panel summary must deduplicate by document and UniqueId.");
+        }
+    }
+
+    private static void AssertCurtainPanelParameterSelection()
+    {
+        var first = new CurtainPanelAreaParameterOption
+        {
+            Name = "Площадь стекла",
+            Scope = CurtainPanelAreaParameterScope.Instance,
+            SharedGuid = "11111111-1111-1111-1111-111111111111"
+        };
+        var second = new CurtainPanelAreaParameterOption
+        {
+            Name = first.Name,
+            Scope = first.Scope,
+            SharedGuid = "22222222-2222-2222-2222-222222222222"
+        };
+        var named = new CurtainPanelAreaParameterOption
+        {
+            Name = first.Name,
+            Scope = CurtainPanelAreaParameterScope.Type
+        };
+
+        CurtainPanelAreaParameterOption? exact = CurtainPanelAreaParameterSelection.Restore(
+            new[] { first, second, named },
+            second.Name,
+            second.Scope.ToString(),
+            second.SharedGuid);
+        if (!ReferenceEquals(exact, second))
+            throw new InvalidOperationException("Curtain panel selection must restore a shared parameter by GUID.");
+
+        CurtainPanelAreaParameterOption? unavailable = CurtainPanelAreaParameterSelection.Restore(
+            new[] { first, named },
+            first.Name,
+            first.Scope.ToString(),
+            "33333333-3333-3333-3333-333333333333");
+        if (unavailable != null)
+            throw new InvalidOperationException("A missing panel GUID must not fall back to the same name.");
+
+        CurtainPanelAreaParameterOption? namedRestored = CurtainPanelAreaParameterSelection.Restore(
+            new[] { first, named },
+            named.Name,
+            named.Scope.ToString(),
+            string.Empty);
+        if (!ReferenceEquals(namedRestored, named))
+            throw new InvalidOperationException("A non-shared panel parameter must restore by name and scope.");
+
+        var exactCandidate = new CurtainPanelAreaParameterValueCandidate
+        {
+            SharedGuid = second.SharedGuid,
+            IsArea = true,
+            IsDouble = true,
+            Value = 10.8
+        };
+        if (!CurtainPanelAreaParameterValueSelector.TrySelect(
+                second,
+                exactCandidate,
+                Array.Empty<CurtainPanelAreaParameterValueCandidate>(),
+                out double exactValue,
+                out string exactReason)
+            || Math.Abs(exactValue - 10.8) > 1e-9
+            || exactReason.Length != 0)
+        {
+            throw new InvalidOperationException("A valid exact panel GUID candidate must be selected.");
+        }
+
+        if (CurtainPanelAreaParameterValueSelector.TrySelect(
+                second,
+                null,
+                new[] { new CurtainPanelAreaParameterValueCandidate { IsArea = true, IsDouble = true, Value = 99 } },
+                out _,
+                out string missingReason)
+            || missingReason != "MissingParameter")
+        {
+            throw new InvalidOperationException("A shared panel option must not use name fallback.");
+        }
+
+        var namedLength = new CurtainPanelAreaParameterValueCandidate
+        {
+            IsArea = false,
+            IsDouble = true,
+            Value = 25
+        };
+        if (CurtainPanelAreaParameterValueSelector.TrySelect(
+                named,
+                null,
+                new[] { namedLength },
+                out _,
+                out string dataTypeReason)
+            || dataTypeReason != "InvalidDataType")
+        {
+            throw new InvalidOperationException("A panel parameter with a non-area data type must be rejected.");
+        }
+
+        var namedWrongStorage = new CurtainPanelAreaParameterValueCandidate
+        {
+            IsArea = true,
+            IsDouble = false
+        };
+        if (CurtainPanelAreaParameterValueSelector.TrySelect(
+                named,
+                null,
+                new[] { namedWrongStorage },
+                out _,
+                out string storageReason)
+            || storageReason != "InvalidStorageType")
+        {
+            throw new InvalidOperationException("A panel area parameter with non-Double storage must be rejected.");
+        }
+    }
+
+    private static void AssertCurtainPanelCatalogBuilder()
+    {
+        var observations = new[]
+        {
+            new CurtainPanelAreaParameterObservation { DocumentKey = "Current", Name = "Area", Scope = CurtainPanelAreaParameterScope.Instance, SharedGuid = "11111111-1111-1111-1111-111111111111", IsArea = true, IsDouble = true },
+            new CurtainPanelAreaParameterObservation { DocumentKey = "Linked", Name = "Area", Scope = CurtainPanelAreaParameterScope.Instance, SharedGuid = "22222222-2222-2222-2222-222222222222", IsArea = true, IsDouble = true },
+            new CurtainPanelAreaParameterObservation { DocumentKey = "Duplicate", Name = "Area", Scope = CurtainPanelAreaParameterScope.Instance, SharedGuid = "22222222-2222-2222-2222-222222222222", IsArea = true, IsDouble = true },
+            new CurtainPanelAreaParameterObservation { DocumentKey = "Named", Name = "Area", Scope = CurtainPanelAreaParameterScope.Type, IsArea = true, IsDouble = true },
+            new CurtainPanelAreaParameterObservation { DocumentKey = "Length", Name = "Wrong", Scope = CurtainPanelAreaParameterScope.Type, IsArea = false, IsDouble = true },
+            new CurtainPanelAreaParameterObservation { DocumentKey = "Text", Name = "Wrong", Scope = CurtainPanelAreaParameterScope.Type, IsArea = true, IsDouble = false }
+        };
+
+        IReadOnlyList<CurtainPanelAreaParameterOption> options =
+            CurtainPanelAreaParameterCatalogBuilder.Build(observations);
+        if (options.Count != 3
+            || !options.Any(item => item.SharedGuid == observations[0].SharedGuid)
+            || !options.Any(item => item.SharedGuid == observations[1].SharedGuid)
+            || !options.Any(item => item.Scope == CurtainPanelAreaParameterScope.Type && item.SharedGuid.Length == 0))
+        {
+            throw new InvalidOperationException(
+                "Panel catalog must keep GUID identity and reject non-area/non-double parameters.");
         }
     }
 
