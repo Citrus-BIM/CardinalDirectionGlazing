@@ -16,6 +16,7 @@ namespace CardinalDirectionGlazing
 
         private readonly List<RevitLinkInstance> _revitLinkInstances;
         private readonly IReadOnlyList<WindowAreaParameterOption> _windowAreaParameters;
+        private readonly IReadOnlyList<CurtainPanelAreaParameterOption> _curtainPanelAreaParameters;
         private bool _uiReady;
 
         public RevitLinkInstance? SelectedRevitLinkInstance;
@@ -23,15 +24,20 @@ namespace CardinalDirectionGlazing
         public string SpacesOrRoomsForProcessingButtonName = string.Empty;
         public bool UseWindowAreaParameter { get; private set; }
         public WindowAreaParameterOption? SelectedWindowAreaParameter { get; private set; }
+        public bool UseCurtainPanelAreaParameter { get; private set; }
+        public CurtainPanelAreaParameterOption? SelectedCurtainPanelAreaParameter { get; private set; }
 
         CardinalDirectionGlazingSettings? CardinalDirectionGlazingSettingsItem = null;
 
         public CardinalDirectionGlazingWPF(
             List<RevitLinkInstance> revitLinkInstanceList,
-            IReadOnlyList<WindowAreaParameterOption> windowAreaParameters)
+            IReadOnlyList<WindowAreaParameterOption> windowAreaParameters,
+            IReadOnlyList<CurtainPanelAreaParameterOption>? curtainPanelAreaParameters = null)
         {
             _revitLinkInstances = revitLinkInstanceList;
             _windowAreaParameters = windowAreaParameters ?? new List<WindowAreaParameterOption>();
+            _curtainPanelAreaParameters = curtainPanelAreaParameters
+                ?? new List<CurtainPanelAreaParameterOption>();
             InitializeComponent();
 
             CardinalDirectionGlazingSettingsItem = CardinalDirectionGlazingSettings.GetSettings();
@@ -40,6 +46,7 @@ namespace CardinalDirectionGlazing
             listBox_RevitLinkInstance.ItemsSource = _revitLinkInstances;
             listBox_RevitLinkInstance.DisplayMemberPath = "Name";
             comboBox_WindowAreaParameter.ItemsSource = _windowAreaParameters;
+            comboBox_CurtainPanelAreaParameter.ItemsSource = _curtainPanelAreaParameters;
 
             bool hasLinks = _revitLinkInstances.Count > 0;
 
@@ -93,6 +100,7 @@ namespace CardinalDirectionGlazing
             }
 
             RestoreWindowAreaParameterSelection();
+            RestoreCurtainPanelAreaParameterSelection();
 
             radioButton_Spaces.Checked += ModeRadio_Checked;
             radioButton_Rooms.Checked += ModeRadio_Checked;
@@ -114,6 +122,19 @@ namespace CardinalDirectionGlazing
                 CardinalDirectionGlazingSettingsItem.WindowAreaParameterName,
                 CardinalDirectionGlazingSettingsItem.WindowAreaParameterScope,
                 CardinalDirectionGlazingSettingsItem.WindowAreaParameterGuid);
+        }
+
+        private void RestoreCurtainPanelAreaParameterSelection()
+        {
+            if (CardinalDirectionGlazingSettingsItem?.UseCurtainPanelAreaParameter != true)
+                return;
+
+            checkBox_CurtainPanelAreaFromParameter.IsChecked = true;
+            comboBox_CurtainPanelAreaParameter.SelectedItem = CurtainPanelAreaParameterSelection.Restore(
+                _curtainPanelAreaParameters,
+                CardinalDirectionGlazingSettingsItem.CurtainPanelAreaParameterName,
+                CardinalDirectionGlazingSettingsItem.CurtainPanelAreaParameterScope,
+                CardinalDirectionGlazingSettingsItem.CurtainPanelAreaParameterGuid);
         }
 
         /// <summary>Старые настройки: помещения + сохранённое имя связи без флага — считаем, что связь использовалась.</summary>
@@ -189,6 +210,17 @@ namespace CardinalDirectionGlazing
             {
                 MessageBox.Show(
                     "Выберите параметр площади окон.",
+                    "Остекление по сторонам",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return false;
+            }
+
+            if (checkBox_CurtainPanelAreaFromParameter.IsChecked == true
+                && comboBox_CurtainPanelAreaParameter.SelectedItem == null)
+            {
+                MessageBox.Show(
+                    "Выберите параметр площади витражных панелей.",
                     "Остекление по сторонам",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -298,6 +330,10 @@ namespace CardinalDirectionGlazing
             SelectedWindowAreaParameter = UseWindowAreaParameter
                 ? comboBox_WindowAreaParameter.SelectedItem as WindowAreaParameterOption
                 : null;
+            UseCurtainPanelAreaParameter = checkBox_CurtainPanelAreaFromParameter.IsChecked == true;
+            SelectedCurtainPanelAreaParameter = UseCurtainPanelAreaParameter
+                ? comboBox_CurtainPanelAreaParameter.SelectedItem as CurtainPanelAreaParameterOption
+                : null;
 
             SelectedRevitLinkInstance = spaces || roomsUseLink
                 ? listBox_RevitLinkInstance.SelectedItem as RevitLinkInstance
@@ -310,7 +346,11 @@ namespace CardinalDirectionGlazing
                 UseWindowAreaParameter = UseWindowAreaParameter,
                 WindowAreaParameterName = SelectedWindowAreaParameter?.Name ?? string.Empty,
                 WindowAreaParameterScope = SelectedWindowAreaParameter?.Scope.ToString() ?? string.Empty,
-                WindowAreaParameterGuid = SelectedWindowAreaParameter?.SharedGuid ?? string.Empty
+                WindowAreaParameterGuid = SelectedWindowAreaParameter?.SharedGuid ?? string.Empty,
+                UseCurtainPanelAreaParameter = UseCurtainPanelAreaParameter,
+                CurtainPanelAreaParameterName = SelectedCurtainPanelAreaParameter?.Name ?? string.Empty,
+                CurtainPanelAreaParameterScope = SelectedCurtainPanelAreaParameter?.Scope.ToString() ?? string.Empty,
+                CurtainPanelAreaParameterGuid = SelectedCurtainPanelAreaParameter?.SharedGuid ?? string.Empty
             };
 
             SpacesForProcessingButtonName = radioButton_Selected.IsChecked == true

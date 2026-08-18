@@ -218,20 +218,39 @@
                   Header="Площадь остекления из параметра"
                   Style="{StaticResource CompactGroupBox}">
             <Grid Margin="8,6,8,8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="16"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <CheckBox x:Name="checkBox_WindowAreaFromParameter"
+                          Grid.Row="0"
                           Grid.Column="0"
                           Content="Окна"
                           VerticalAlignment="Center"/>
                 <ComboBox x:Name="comboBox_WindowAreaParameter"
+                          Grid.Row="0"
                           Grid.Column="2"
                           MinWidth="360"
                           DisplayMemberPath="DisplayName"
                           IsEnabled="{Binding IsChecked, ElementName=checkBox_WindowAreaFromParameter}"/>
+                <CheckBox x:Name="checkBox_CurtainPanelAreaFromParameter"
+                          Grid.Row="1"
+                          Grid.Column="0"
+                          Margin="0,10,0,0"
+                          Content="Витражные панели"
+                          VerticalAlignment="Center"/>
+                <ComboBox x:Name="comboBox_CurtainPanelAreaParameter"
+                          Grid.Row="1"
+                          Grid.Column="2"
+                          Margin="0,10,0,0"
+                          MinWidth="360"
+                          DisplayMemberPath="DisplayName"
+                          IsEnabled="{Binding IsChecked, ElementName=checkBox_CurtainPanelAreaFromParameter}"/>
             </Grid>
         </GroupBox>
 

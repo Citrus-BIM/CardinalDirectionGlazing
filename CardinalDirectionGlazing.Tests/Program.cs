@@ -34,7 +34,9 @@ internal static class Program
         AssertCurtainPanelParameterSelection();
         AssertCurtainPanelCatalogBuilder();
         AssertWindowAreaSettingsRoundTrip();
+        AssertCurtainPanelAreaSettingsRoundTrip();
         AssertWindowAreaParameterControlsExist();
+        AssertCurtainPanelAreaParameterControlsExist();
         AssertWindowAreaParameterIsIntegrated();
         AssertWindowAreaParameterRestorationUsesGuid();
         AssertWindowAreaParameterValueSelectionRejectsWrongDataTypes();
@@ -415,6 +417,49 @@ internal static class Program
         }
     }
 
+    private static void AssertCurtainPanelAreaSettingsRoundTrip()
+    {
+        const string oldXml = "<CardinalDirectionGlazingSettings><SpacesForProcessingButtonName>radioButton_All</SpacesForProcessingButtonName></CardinalDirectionGlazingSettings>";
+        var serializer = new XmlSerializer(typeof(CardinalDirectionGlazingSettings));
+        CardinalDirectionGlazingSettings oldSettings;
+        using (var reader = new StringReader(oldXml))
+            oldSettings = (CardinalDirectionGlazingSettings)serializer.Deserialize(reader)!;
+
+        if (oldSettings.UseCurtainPanelAreaParameter
+            || oldSettings.CurtainPanelAreaParameterName.Length != 0
+            || oldSettings.CurtainPanelAreaParameterScope.Length != 0
+            || oldSettings.CurtainPanelAreaParameterGuid.Length != 0)
+        {
+            throw new InvalidOperationException("Legacy settings must keep HOST_AREA_COMPUTED for curtain panels.");
+        }
+
+        var expected = new CardinalDirectionGlazingSettings
+        {
+            UseCurtainPanelAreaParameter = true,
+            CurtainPanelAreaParameterName = "Площадь стекла",
+            CurtainPanelAreaParameterScope = "Type",
+            CurtainPanelAreaParameterGuid = "33333333-3333-3333-3333-333333333333"
+        };
+        string xml;
+        using (var writer = new StringWriter())
+        {
+            serializer.Serialize(writer, expected);
+            xml = writer.ToString();
+        }
+
+        CardinalDirectionGlazingSettings actual;
+        using (var reader = new StringReader(xml))
+            actual = (CardinalDirectionGlazingSettings)serializer.Deserialize(reader)!;
+
+        if (!actual.UseCurtainPanelAreaParameter
+            || actual.CurtainPanelAreaParameterName != expected.CurtainPanelAreaParameterName
+            || actual.CurtainPanelAreaParameterScope != expected.CurtainPanelAreaParameterScope
+            || actual.CurtainPanelAreaParameterGuid != expected.CurtainPanelAreaParameterGuid)
+        {
+            throw new InvalidOperationException("Curtain panel area parameter settings did not round-trip.");
+        }
+    }
+
     private static void AssertWindowAreaParameterControlsExist()
     {
         string path = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing", "CardinalDirectionGlazingWPF.xaml");
@@ -431,6 +476,25 @@ internal static class Program
         {
             if (!xaml.Contains(marker))
                 throw new InvalidOperationException($"Window area UI marker is missing: {marker}");
+        }
+    }
+
+    private static void AssertCurtainPanelAreaParameterControlsExist()
+    {
+        string path = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing", "CardinalDirectionGlazingWPF.xaml");
+        string xaml = File.ReadAllText(path);
+        string[] required =
+        {
+            "x:Name=\"checkBox_CurtainPanelAreaFromParameter\"",
+            "Content=\"Витражные панели\"",
+            "x:Name=\"comboBox_CurtainPanelAreaParameter\"",
+            "ElementName=checkBox_CurtainPanelAreaFromParameter"
+        };
+
+        foreach (string marker in required)
+        {
+            if (!xaml.Contains(marker))
+                throw new InvalidOperationException($"Curtain panel area UI marker is missing: {marker}");
         }
     }
 

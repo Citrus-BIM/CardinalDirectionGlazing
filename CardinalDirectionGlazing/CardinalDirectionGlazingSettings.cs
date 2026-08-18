@@ -17,6 +17,11 @@ namespace CardinalDirectionGlazing
         public string WindowAreaParameterScope { get; set; } = string.Empty;
         public string WindowAreaParameterGuid { get; set; } = string.Empty;
 
+        public bool UseCurtainPanelAreaParameter { get; set; }
+        public string CurtainPanelAreaParameterName { get; set; } = string.Empty;
+        public string CurtainPanelAreaParameterScope { get; set; } = string.Empty;
+        public string CurtainPanelAreaParameterGuid { get; set; } = string.Empty;
+
         public static CardinalDirectionGlazingSettings? GetSettings()
         {
             CardinalDirectionGlazingSettings? cardinalDirectionGlazingSettings = null;
