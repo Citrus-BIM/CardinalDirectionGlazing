@@ -31,6 +31,7 @@ internal static class Program
         AssertWindowAreaUsageSummaryDeduplicatesWindows();
         AssertCurtainPanelAreaResolution();
         AssertCurtainPanelAreaUsageSummaryDeduplicatesPanels();
+        AssertFriendlyAreaUsageSummary();
         AssertCurtainPanelParameterSelection();
         AssertCurtainPanelCatalogBuilder();
         AssertWindowAreaSettingsRoundTrip();
@@ -250,6 +251,59 @@ internal static class Program
         if (summary.ParameterCount != 1 || summary.HostAreaFallbackCount != 1)
         {
             throw new InvalidOperationException("Curtain panel summary must deduplicate by document and UniqueId.");
+        }
+    }
+
+    private static void AssertFriendlyAreaUsageSummary()
+    {
+        var windowOption = new WindowAreaParameterOption
+        {
+            Name = "Площадь окна",
+            Scope = WindowAreaParameterScope.Instance
+        };
+        var windowSummary = new WindowAreaUsageSummary();
+        windowSummary.Register("CurrentWindows|window-parameter", WindowAreaValueSource.Parameter);
+        windowSummary.Register("LinkedWindows|window-dimensions", WindowAreaValueSource.DimensionsFallback);
+
+        var panelOption = new CurtainPanelAreaParameterOption
+        {
+            Name = "Площадь стекла",
+            Scope = CurtainPanelAreaParameterScope.Type
+        };
+        var panelSummary = new CurtainPanelAreaUsageSummary();
+        var documentIdentity = new object();
+        panelSummary.Register(
+            documentIdentity,
+            "panel-parameter",
+            CurtainPanelAreaValueSource.Parameter);
+        panelSummary.Register(
+            documentIdentity,
+            "panel-host-area",
+            CurtainPanelAreaValueSource.HostAreaFallback);
+
+        string actual = AreaUsageSummaryFormatter.Format(
+            windowOption,
+            windowSummary,
+            panelOption,
+            panelSummary);
+        string expected = string.Join(Environment.NewLine, new[]
+        {
+            "Окна — параметр «Площадь окна» (экземпляр): 1",
+            "Окна — «Высота» × «Ширина»: 1",
+            string.Empty,
+            "Витражные панели — параметр «Площадь стекла» (тип): 1",
+            "Витражные панели — системный параметр «Площадь»: 1"
+        });
+
+        if (!string.Equals(actual, expected, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Unexpected friendly area summary.{Environment.NewLine}Expected:{Environment.NewLine}{expected}{Environment.NewLine}Actual:{Environment.NewLine}{actual}");
+        }
+
+        if (actual.Contains("HOST_AREA_COMPUTED", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Friendly area summary must not expose the HOST_AREA_COMPUTED identifier.");
         }
     }
 
@@ -610,8 +664,7 @@ internal static class Program
             "areaResult.Area",
             "if (areaCounted)",
             "curtainPanelAreaUsageSummary?.Register",
-            "Площадь витражных панелей из параметра",
-            "Площадь витражных панелей по HOST_AREA_COMPUTED"
+            "AreaUsageSummaryFormatter.Format"
         };
 
         foreach (string marker in required)
@@ -693,7 +746,7 @@ internal static class Program
             "WindowAreaParameterReader.TryRead",
             "WindowAreaCalculator.Resolve",
             "windowAreaUsageSummary.Register",
-            "Площадь окон из параметра"
+            "AreaUsageSummaryFormatter.Format"
         };
 
         foreach (string marker in required)

@@ -577,25 +577,13 @@ namespace CardinalDirectionGlazing
                 t.Commit();
             }
 
-            var areaSummaryLines = new List<string>();
-            if (selectedWindowAreaParameter != null)
-            {
-                areaSummaryLines.Add("Площадь окон из параметра: " + windowAreaUsageSummary.ParameterCount);
-                areaSummaryLines.Add("Площадь окон по высоте × ширине: " + windowAreaUsageSummary.DimensionsFallbackCount);
-            }
-            if (selectedCurtainPanelAreaParameter != null)
-            {
-                if (areaSummaryLines.Count > 0)
-                    areaSummaryLines.Add(string.Empty);
-                areaSummaryLines.Add(
-                    "Площадь витражных панелей из параметра: "
-                    + curtainPanelAreaUsageSummary.ParameterCount);
-                areaSummaryLines.Add(
-                    "Площадь витражных панелей по HOST_AREA_COMPUTED: "
-                    + curtainPanelAreaUsageSummary.HostAreaFallbackCount);
-            }
-            if (areaSummaryLines.Count > 0)
-                TaskDialog.Show("Остекление по сторонам", string.Join(Environment.NewLine, areaSummaryLines));
+            string areaSummary = AreaUsageSummaryFormatter.Format(
+                selectedWindowAreaParameter,
+                windowAreaUsageSummary,
+                selectedCurtainPanelAreaParameter,
+                curtainPanelAreaUsageSummary);
+            if (!string.IsNullOrEmpty(areaSummary))
+                TaskDialog.Show("Остекление по сторонам", areaSummary);
 
             CompleteRunTrace(trace, "Succeeded", "Completed");
             return Result.Succeeded;
