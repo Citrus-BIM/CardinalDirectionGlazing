@@ -40,6 +40,7 @@ internal static class Program
         AssertCurtainPanelCatalogUsesCurrentGlazingClassifier();
         AssertCurtainPanelAreaParameterReaderGuardsIdentityAndDataType();
         AssertCurtainPanelAreaParameterFlowsToDirectionalTotals();
+        AssertCurtainPanelAreaFeatureIsIsolatedFromOtherSources();
         AssertWindowAreaParameterIsIntegrated();
         AssertWindowAreaParameterRestorationUsesGuid();
         AssertWindowAreaParameterValueSelectionRejectsWrongDataTypes();
@@ -602,6 +603,69 @@ internal static class Program
             if (!source.Contains(marker))
                 throw new InvalidOperationException($"Curtain panel end-to-end marker is missing: {marker}");
         }
+    }
+
+    private static void AssertCurtainPanelAreaFeatureIsIsolatedFromOtherSources()
+    {
+        string project = Path.Combine(Environment.CurrentDirectory, "CardinalDirectionGlazing");
+        string command = File.ReadAllText(Path.Combine(project, "CardinalDirectionGlazingCommand.cs"));
+        string classifier = File.ReadAllText(Path.Combine(project, "CurtainGridFillGlazingClassifier.cs"));
+        string catalog = File.ReadAllText(Path.Combine(project, "CurtainPanelAreaParameterCatalog.cs"));
+        string xaml = File.ReadAllText(Path.Combine(project, "CardinalDirectionGlazingWPF.xaml"));
+
+        string windowAreaBlock = SliceSource(command, "private WindowAreaResult GetWindowArea", "private CurtainPanelAreaResult GetCurtainPanelArea");
+        if (!windowAreaBlock.Contains("WindowAreaParameterReader.TryRead")
+            || !windowAreaBlock.Contains("WindowAreaCalculator.Resolve"))
+        {
+            throw new InvalidOperationException("The existing window area path must remain intact.");
+        }
+
+        string basicWallBlock = SliceSource(command, "private void ProcessGlazingBasicWalls", "private void ProcessCurtainWallFills");
+        if (basicWallBlock.Contains("CurtainPanelAreaParameter")
+            || basicWallBlock.Contains("CurtainPanelAreaCalculator"))
+        {
+            throw new InvalidOperationException("Basic glazing walls must not receive the panel parameter setting.");
+        }
+
+        string curtainFillBlock = SliceSource(command, "private void ProcessCurtainWallFills", "private bool TryGetFillBoundingBox");
+        int firstUpdate = curtainFillBlock.IndexOf("bool areaCounted = UpdateWindowAreas", StringComparison.Ordinal);
+        int firstRegister = curtainFillBlock.IndexOf("curtainPanelAreaUsageSummary?.Register", StringComparison.Ordinal);
+        int secondUpdate = curtainFillBlock.IndexOf("bool areaCounted = UpdateWindowAreas", firstUpdate + 1, StringComparison.Ordinal);
+        int secondRegister = curtainFillBlock.IndexOf("curtainPanelAreaUsageSummary?.Register", firstRegister + 1, StringComparison.Ordinal);
+        if (!curtainFillBlock.Contains("double hostArea = GetFillHostArea(fill)")
+            || !curtainFillBlock.Contains("if (fill is Panel panel)")
+            || firstUpdate < 0
+            || secondUpdate < 0
+            || firstRegister <= firstUpdate
+            || secondRegister <= secondUpdate)
+        {
+            throw new InvalidOperationException("Panel statistics must be registered only after successful directional updates.");
+        }
+
+        if (!classifier.Contains("if (fill is Wall wall)")
+            || !classifier.Contains("WallModelGroupGlazingMarker")
+            || !catalog.Contains("CurtainGridFillGlazingClassifier.IsGlazing(panel)")
+            || !command.Contains("CurtainGridFillGlazingClassifier.IsGlazing(fill, sourceTrace)"))
+        {
+            throw new InvalidOperationException("Catalog and calculation must share the existing fill classifier.");
+        }
+
+        if (!xaml.Contains("checkBox_WindowAreaFromParameter")
+            || !xaml.Contains("checkBox_CurtainPanelAreaFromParameter")
+            || !xaml.Contains("comboBox_WindowAreaParameter")
+            || !xaml.Contains("comboBox_CurtainPanelAreaParameter"))
+        {
+            throw new InvalidOperationException("Window and curtain panel area controls must remain independent.");
+        }
+    }
+
+    private static string SliceSource(string source, string startMarker, string endMarker)
+    {
+        int start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        int end = source.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
+        if (start < 0 || end <= start)
+            throw new InvalidOperationException($"Cannot slice source from '{startMarker}' to '{endMarker}'.");
+        return source.Substring(start, end - start);
     }
 
     private static void AssertWindowAreaParameterIsIntegrated()
