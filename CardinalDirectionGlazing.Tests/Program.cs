@@ -38,6 +38,7 @@ internal static class Program
         AssertWindowAreaParameterControlsExist();
         AssertCurtainPanelAreaParameterControlsExist();
         AssertCurtainPanelCatalogUsesCurrentGlazingClassifier();
+        AssertCurtainPanelAreaParameterReaderGuardsIdentityAndDataType();
         AssertWindowAreaParameterIsIntegrated();
         AssertWindowAreaParameterRestorationUsesGuid();
         AssertWindowAreaParameterValueSelectionRejectsWrongDataTypes();
@@ -540,6 +541,35 @@ internal static class Program
         foreach (string marker in classifierMarkers)
             if (!classifier.Contains(marker))
                 throw new InvalidOperationException($"Panel classifier marker is missing: {marker}");
+    }
+
+    private static void AssertCurtainPanelAreaParameterReaderGuardsIdentityAndDataType()
+    {
+        string path = Path.Combine(
+            Environment.CurrentDirectory,
+            "CardinalDirectionGlazing",
+            "CurtainPanelAreaParameterReader.cs");
+        if (!File.Exists(path))
+            throw new InvalidOperationException("Curtain panel parameter reader must exist.");
+
+        string source = File.ReadAllText(path);
+        string[] required =
+        {
+            "option.Scope == CurtainPanelAreaParameterScope.Instance",
+            "panel.Symbol",
+            "source.get_Parameter(guid)",
+            "source.GetParameters(option.Name)",
+            "CurtainPanelAreaParameterValueSelector.TrySelect",
+            "StorageType.Double",
+            "ParameterType.Area",
+            "SpecTypeId.Area"
+        };
+
+        foreach (string marker in required)
+        {
+            if (!source.Contains(marker))
+                throw new InvalidOperationException($"Curtain panel reader marker is missing: {marker}");
+        }
     }
 
     private static void AssertWindowAreaParameterIsIntegrated()
